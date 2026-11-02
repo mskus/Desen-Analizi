@@ -179,17 +179,15 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'table' && (
-          <PatternTableTab
-            rows={currentPattern.rows}
+        {(activeTab === 'editor' || activeTab === 'table') && (
+          <InteractiveEditorTab
+            pattern={currentPattern}
             onChangeRows={handleUpdateRows}
-            guideBars={currentPattern.guideBars}
-            safety={currentPattern.safety || defaultSafetyConfig}
-            onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
             onUndo={handleUndo}
             onRedo={handleRedo}
             canUndo={historyIndex > 0}
             canRedo={historyIndex < history.length - 1}
+            onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
           />
         )}
 

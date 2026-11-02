@@ -33,10 +33,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const tabs: { id: ActiveTab; label: string; icon: React.ElementType }[] = [
     { id: 'simulation', label: 'Simülasyon', icon: Eye },
-    { id: 'editor', label: 'Canlı Editör', icon: SlidersHorizontal },
-    { id: 'table', label: 'Desen Tablosu', icon: Table },
+    { id: 'editor', label: 'Editör & Tablo', icon: SlidersHorizontal },
     { id: 'library', label: 'Kütüphane', icon: BookOpen },
-    { id: 'machine', label: 'Makine & Ayar', icon: Settings },
+    { id: 'machine', label: 'Makine', icon: Settings },
   ];
 
   return (
@@ -128,7 +127,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Fixed Bottom Navigation Bar (Thumb Friendly) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800 backdrop-blur pb-safe">
-        <div className="grid grid-cols-5 h-14">
+        <div className="grid grid-cols-4 h-14">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
