@@ -1,22 +1,20 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { PatternData, PatternRow, GuideBarId } from '../types';
 import {
-  Move,
   Plus,
   Trash2,
   ZoomIn,
   ZoomOut,
-  RotateCcw,
   Sparkles,
-  Layers,
   Undo2,
   Redo2,
   Sliders,
   Table as TableIcon,
   Copy,
+  ClipboardPaste,
   ShieldCheck,
-  Wand2,
-  Check
+  Check,
+  CopyPlus
 } from 'lucide-react';
 
 interface InteractiveEditorTabProps {
@@ -44,6 +42,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   const [quickInputText, setQuickInputText] = useState('');
   const [selectedGbForQuick, setSelectedGbForQuick] = useState<GuideBarId>('GB3');
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [copiedRow, setCopiedRow] = useState<PatternRow | null>(null);
 
   // Dragging state
   const draggingRef = useRef<{
@@ -85,7 +84,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
 
   const showMsg = (msg: string) => {
     setActionMsg(msg);
-    setTimeout(() => setActionMsg(null), 3000);
+    setTimeout(() => setActionMsg(null), 2000);
   };
 
   const getNeedleFromClientX = useCallback((clientX: number): number => {
@@ -109,6 +108,18 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     const nearestCourse = Math.floor(relativeY / coursePitch);
     return Math.max(0, Math.min(rows.length - 1, nearestCourse));
   }, [canvasRef, coursePitch, rows.length, startY]);
+
+  // Color helper for column soft tints
+  const getSoftColorBg = (hexColor: string, alpha = 0.12) => {
+    if (hexColor && hexColor.startsWith('#')) {
+      const hex = hexColor.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16) || 0;
+      const g = parseInt(hex.substring(2, 4), 16) || 0;
+      const b = parseInt(hex.substring(4, 6), 16) || 0;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    return 'transparent';
+  };
 
   // Draw Point Paper Grid & Guide Bars
   const drawEditorCanvas = useCallback(() => {
@@ -321,7 +332,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     setDraggingNode(null);
   };
 
-  // Table Row Actions (with Sticky / Floating accessibility)
+  // Actions
   const addRow = () => {
     const lastRow = rows[rows.length - 1] || { GB1: 0, GB2: 0, GB3: 0, GB4: 0, GB5: 0, GB6: 0 };
     const newRow: PatternRow = {
@@ -335,14 +346,30 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       GB6: lastRow.GB6,
     };
     onChangeRows([...rows, newRow]);
-    showMsg('Yeni kurs satırı eklendi.');
+    showMsg('Yeni satır eklendi.');
   };
 
   const deleteRow = (index: number) => {
     if (rows.length <= 1) return;
     const updated = rows.filter((_, i) => i !== index).map((r, i) => ({ ...r, courseIndex: i + 1 }));
     onChangeRows(updated);
-    showMsg('Kurs satırı silindi.');
+    showMsg('Satır silindi.');
+  };
+
+  const copyRow = (row: PatternRow) => {
+    setCopiedRow(row);
+    showMsg(`K${row.courseIndex} kopyalandı.`);
+  };
+
+  const pasteRow = () => {
+    if (!copiedRow) return;
+    const newRow: PatternRow = {
+      ...copiedRow,
+      id: 'paste-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+      courseIndex: rows.length + 1,
+    };
+    onChangeRows([...rows, newRow]);
+    showMsg('Satır yapıştırıldı.');
   };
 
   const duplicatePattern = () => {
@@ -352,7 +379,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       courseIndex: idx + 1,
     }));
     onChangeRows(duplicated);
-    showMsg('Desen 2x katlanarak çoğaltıldı.');
+    showMsg('Desen 2x çoğaltıldı.');
   };
 
   const mirrorPattern = () => {
@@ -362,7 +389,13 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       courseIndex: rows.length + idx + 1,
     }));
     onChangeRows([...rows, ...reversed]);
-    showMsg('Desen simetrik olarak aynalandı.');
+    showMsg('Desen aynalandı.');
+  };
+
+  const resetRowsToSingle = () => {
+    const firstRow = rows[0] || { id: 'r1', courseIndex: 1, GB1: 0, GB2: 0, GB3: 1, GB4: 0, GB5: 2, GB6: 0 };
+    onChangeRows([{ ...firstRow, courseIndex: 1 }]);
+    showMsg('Tek satıra sıfırlandı.');
   };
 
   const handleCellChange = (rowIndex: number, gb: GuideBarId, val: number) => {
@@ -398,52 +431,63 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
 
     onChangeRows(newRows);
     setQuickInputText('');
-    showMsg('Hızlı notasyon tabloya işlendi.');
+    showMsg('Notasyon uygulandı.');
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 space-y-4">
-      {/* Toast Notification Banner */}
+    <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2.5 space-y-3">
+      {/* Toast Notification */}
       {actionMsg && (
-        <div className="bg-emerald-950/90 border border-emerald-800 text-emerald-200 px-4 py-2 rounded-xl text-xs flex items-center space-x-2 animate-fade-in shadow-lg">
-          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div className="bg-emerald-950/90 border border-emerald-800 text-emerald-200 px-3.5 py-1.5 rounded-xl text-xs flex items-center space-x-2 shadow-lg sticky top-14 z-40">
+          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
           <span>{actionMsg}</span>
         </div>
       )}
 
-      {/* Sticky Quick Action Toolbar (Never have to scroll up to add rows!) */}
-      <div className="bg-slate-900/95 backdrop-blur border border-slate-800 rounded-2xl p-3 sticky top-14 sm:top-16 z-30 shadow-xl flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-          <span className="text-xs text-slate-400 font-semibold shrink-0">Hızlı İşlemler:</span>
+      {/* Top Sticky Quick Toolbar */}
+      <div className="bg-slate-900/95 backdrop-blur border border-slate-800 rounded-xl p-2 sticky top-13 z-30 shadow-lg flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none">
+        <div className="flex items-center space-x-1 shrink-0">
           <button
             onClick={addRow}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition flex items-center space-x-1 shrink-0 shadow"
+            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shrink-0 shadow"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Satır Ekle</span>
+            <span>+ Satır</span>
           </button>
+
+          {copiedRow && (
+            <button
+              onClick={pasteRow}
+              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition flex items-center space-x-1 shrink-0"
+            >
+              <ClipboardPaste className="w-3.5 h-3.5" />
+              <span>Yapıştır</span>
+            </button>
+          )}
+
           <button
             onClick={duplicatePattern}
-            className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition shrink-0"
+            className="px-2 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition shrink-0"
           >
-            Deseni Çoğalt (2x)
+            2x Çoğalt
           </button>
+
           <button
             onClick={mirrorPattern}
-            className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition shrink-0"
+            className="px-2 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition shrink-0"
           >
             Aynala
           </button>
         </div>
 
-        <div className="flex items-center space-x-1.5 ml-auto">
+        <div className="flex items-center space-x-1 shrink-0 ml-auto">
           <button
             onClick={onUndo}
             disabled={!canUndo}
             className="p-1.5 bg-slate-950 border border-slate-800 text-slate-300 disabled:opacity-30 rounded-lg hover:bg-slate-800 transition"
             title="Geri Al"
           >
-            <Undo2 className="w-4 h-4" />
+            <Undo2 className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={onRedo}
@@ -451,29 +495,28 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
             className="p-1.5 bg-slate-950 border border-slate-800 text-slate-300 disabled:opacity-30 rounded-lg hover:bg-slate-800 transition"
             title="Yinele"
           >
-            <Redo2 className="w-4 h-4" />
+            <Redo2 className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={onOpenSafetySettings}
             className="p-1.5 bg-amber-950/40 border border-amber-800/60 text-amber-400 rounded-lg text-xs font-medium hover:bg-amber-900/40 transition flex items-center space-x-1"
-            title="Güvenli Tarak Ayarları"
+            title="Güvenlik"
           >
-            <ShieldCheck className="w-4 h-4" />
-            <span className="hidden sm:inline">Güvenlik</span>
+            <ShieldCheck className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Top Section: Visual Point Paper Drag Editor */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden relative">
-        <div className="bg-slate-950 px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center space-x-2">
-            <Sliders className="w-4 h-4 text-blue-400" />
-            <span className="text-xs font-bold text-white">Canlı Sürükle-Bırak Tarak Editörü</span>
+      {/* Visual Point Paper Drag Canvas */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden relative">
+        <div className="bg-slate-950 px-3 py-2 border-b border-slate-800 flex items-center justify-between gap-2 overflow-x-auto scrollbar-none">
+          <div className="flex items-center space-x-1.5 shrink-0">
+            <Sliders className="w-4 h-4 text-blue-400 shrink-0" />
+            <span className="text-xs font-bold text-white">Canlı Sürükle-Bırak</span>
           </div>
 
-          {/* Guide Bar selector */}
-          <div className="flex items-center space-x-1">
+          {/* Guide Bar Selector */}
+          <div className="flex items-center space-x-1 shrink-0">
             {activeBars.map((gbId) => {
               const gb = pattern.guideBars[gbId];
               const isSelected = activeGbId === gbId;
@@ -481,7 +524,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                 <button
                   key={gbId}
                   onClick={() => setActiveGbId(gbId)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                  className={`px-2 py-0.5 rounded-lg text-xs font-bold border transition shrink-0 ${
                     isSelected ? 'text-white border-transparent shadow' : 'bg-slate-950 text-slate-400 border-slate-800'
                   }`}
                   style={{ backgroundColor: isSelected ? gb.color : undefined }}
@@ -493,19 +536,19 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
           </div>
 
           {/* Zoom */}
-          <div className="flex items-center space-x-1 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800">
-            <button onClick={() => setZoom((z) => Math.max(0.6, z - 0.15))} className="text-slate-400 hover:text-white">
-              <ZoomOut className="w-3.5 h-3.5" />
+          <div className="flex items-center space-x-1 bg-slate-950 px-1.5 py-0.5 rounded-lg border border-slate-800 shrink-0">
+            <button onClick={() => setZoom((z) => Math.max(0.6, z - 0.15))} className="text-slate-400 hover:text-white p-0.5">
+              <ZoomOut className="w-3 h-3" />
             </button>
-            <span className="text-[11px] font-mono text-slate-300">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom((z) => Math.min(2.0, z + 0.15))} className="text-slate-400 hover:text-white">
-              <ZoomIn className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-mono text-slate-300 min-w-[28px] text-center">{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom((z) => Math.min(2.0, z + 0.15))} className="text-slate-400 hover:text-white p-0.5">
+              <ZoomIn className="w-3 h-3" />
             </button>
           </div>
         </div>
 
-        {/* Canvas viewport */}
-        <div ref={containerRef} className="p-4 overflow-auto max-h-[500px] bg-[#070b14] flex justify-center cursor-crosshair select-none">
+        {/* Canvas Area */}
+        <div ref={containerRef} className="p-2 overflow-auto max-h-[420px] bg-[#070b14] flex justify-center cursor-crosshair select-none">
           <div
             style={{
               transform: `scale(${zoom})`,
@@ -528,104 +571,198 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
 
         {/* Floating Mini Preview Widget */}
         {isLivePreviewOpen && (
-          <div className="absolute bottom-4 right-4 w-52 bg-slate-900/95 backdrop-blur border border-slate-700/80 rounded-xl shadow-2xl p-2.5 space-y-1.5">
-            <div className="flex items-center justify-between text-[11px] font-bold text-white border-b border-slate-800 pb-1">
+          <div className="hidden md:block absolute bottom-2 right-2 w-44 bg-slate-900/95 backdrop-blur border border-slate-700/80 rounded-xl shadow-xl p-1.5 space-y-1">
+            <div className="flex items-center justify-between text-[10px] font-bold text-white border-b border-slate-800 pb-0.5">
               <span className="flex items-center space-x-1">
                 <Sparkles className="w-3 h-3 text-blue-400" />
-                <span>Canlı Önizleme</span>
+                <span>Önizleme</span>
               </span>
               <button onClick={() => setIsLivePreviewOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
-            <canvas ref={previewCanvasRef} width={200} height={120} className="rounded-lg border border-slate-800 bg-[#0a0f1e]" />
+            <canvas ref={previewCanvasRef} width={160} height={90} className="rounded-lg border border-slate-800 bg-[#0a0f1e]" />
           </div>
         )}
       </div>
 
-      {/* Bottom Section: Unified Full Pattern Code Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4 shadow-xl">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+      {/* Pattern Code Table & Chain Grid - DISTINCTLY COLOR CODED COLUMNS */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2.5 sm:p-3 space-y-2.5 shadow-lg">
+        {/* Table Controls Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
           <div className="flex items-center space-x-2">
-            <TableIcon className="w-5 h-5 text-blue-400" />
-            <div>
-              <h3 className="text-sm font-bold text-white">Desen Kod Tablosu & Zincir Diyagramı</h3>
-              <p className="text-xs text-slate-400">Toplam {rows.length} kurs, {needleCols} iğne aralığı</p>
-            </div>
+            <TableIcon className="w-4 h-4 text-blue-400 shrink-0" />
+            <h3 className="text-xs sm:text-sm font-bold text-white">Desen Kod Tablosu ({rows.length} Kurs)</h3>
           </div>
 
-          {/* Quick Notation Bar */}
-          <div className="flex items-center space-x-2">
-            <select
-              value={selectedGbForQuick}
-              onChange={(e) => setSelectedGbForQuick(e.target.value as GuideBarId)}
-              className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200"
-            >
-              {activeBars.map((id) => (
-                <option key={id} value={id}>{id}</option>
-              ))}
-            </select>
-            <input
-              type="text"
-              value={quickInputText}
-              onChange={(e) => setQuickInputText(e.target.value)}
-              placeholder="Örn: 1-0, 1-2, 2-1"
-              className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono w-44 sm:w-56"
-            />
+          <div className="flex flex-wrap items-center gap-1">
             <button
-              onClick={handleQuickNotationParse}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition shrink-0"
+              onClick={addRow}
+              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow"
             >
-              Uygula
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Satır</span>
+            </button>
+            <button
+              onClick={duplicatePattern}
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-lg text-xs font-medium transition"
+            >
+              2x
+            </button>
+            <button
+              onClick={mirrorPattern}
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-lg text-xs font-medium transition"
+            >
+              Aynala
+            </button>
+            <button
+              onClick={resetRowsToSingle}
+              className="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 border border-rose-900/60 rounded-lg text-xs transition"
+            >
+              Temizle
             </button>
           </div>
         </div>
 
-        {/* Table Viewport */}
-        <div className="overflow-x-auto max-h-[420px] rounded-xl border border-slate-800 bg-[#070b14]">
-          <table className="w-full text-left text-xs font-mono">
-            <thead className="bg-slate-950 sticky top-0 z-10 text-slate-400 border-b border-slate-800">
+        {/* Quick Input Bar */}
+        <div className="flex items-center space-x-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800/80">
+          <span className="text-[11px] text-slate-400 font-medium shrink-0">Kod:</span>
+          <select
+            value={selectedGbForQuick}
+            onChange={(e) => setSelectedGbForQuick(e.target.value as GuideBarId)}
+            className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-slate-200 shrink-0"
+            style={{ color: pattern.guideBars[selectedGbForQuick]?.color }}
+          >
+            {activeBars.map((id) => (
+              <option key={id} value={id}>{id}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={quickInputText}
+            onChange={(e) => setQuickInputText(e.target.value)}
+            placeholder="1-0 1-2 2-1"
+            className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 font-mono flex-1 min-w-[100px]"
+          />
+          <button
+            onClick={handleQuickNotationParse}
+            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition shrink-0"
+          >
+            Ekle
+          </button>
+        </div>
+
+        {/* COLOR CODED TABLE VIEWPORT */}
+        <div className="overflow-x-auto max-h-[380px] rounded-xl border border-slate-800 bg-[#070b14] scrollbar-thin">
+          <table className="w-full text-left text-xs font-mono border-collapse">
+            <thead className="bg-slate-950 sticky top-0 z-10 border-b border-slate-800">
               <tr>
-                <th className="py-2.5 px-3">Kurs</th>
-                {activeBars.map((gbId) => (
-                  <th key={gbId} className="py-2.5 px-3" style={{ color: pattern.guideBars[gbId].color }}>
-                    {gbId} ({pattern.guideBars[gbId].name})
-                  </th>
-                ))}
-                <th className="py-2.5 px-3 text-right">İşlem</th>
+                <th className="py-2 px-2.5 text-slate-400 text-center w-14 border-r border-slate-800/60">
+                  Kurs
+                </th>
+                {activeBars.map((gbId) => {
+                  const gbColor = pattern.guideBars[gbId]?.color || '#3b82f6';
+                  const softBg = getSoftColorBg(gbColor, 0.18);
+                  return (
+                    <th
+                      key={gbId}
+                      className="py-2 px-2 text-center border-r border-slate-800/60 font-bold"
+                      style={{
+                        backgroundColor: softBg,
+                        color: gbColor,
+                        borderBottom: `2.5px solid ${gbColor}`,
+                      }}
+                    >
+                      <div className="flex items-center justify-center space-x-1">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: gbColor }} />
+                        <span>{gbId}</span>
+                      </div>
+                    </th>
+                  );
+                })}
+                <th className="py-2 px-2.5 text-right text-slate-400 w-16">
+                  İşlem
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {rows.map((row, rIdx) => (
-                <tr key={row.id || rIdx} className="hover:bg-slate-800/40 transition">
-                  <td className="py-2 px-3 font-bold text-slate-300">K{row.courseIndex}</td>
+                <tr key={row.id || rIdx} className="hover:bg-slate-800/30 transition">
+                  <td className="py-1.5 px-2 text-center font-bold text-slate-300 border-r border-slate-800/60 bg-slate-950/40">
+                    K{row.courseIndex}
+                  </td>
                   {activeBars.map((gbId) => {
+                    const gbColor = pattern.guideBars[gbId]?.color || '#3b82f6';
+                    const softBg = getSoftColorBg(gbColor, 0.05);
                     const val = row[gbId] ?? 0;
                     return (
-                      <td key={gbId} className="py-2 px-3">
+                      <td
+                        key={gbId}
+                        className="py-1.5 px-1.5 text-center border-r border-slate-800/50"
+                        style={{ backgroundColor: softBg }}
+                      >
                         <input
                           type="number"
                           min={0}
                           max={needleCols - 1}
                           value={val}
                           onChange={(e) => handleCellChange(rIdx, gbId, parseInt(e.target.value, 10))}
-                          className="w-16 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-center text-white focus:outline-none focus:border-blue-500 font-mono"
+                          className="w-13 sm:w-16 h-8 bg-slate-950 rounded-lg text-center font-bold font-mono focus:outline-none transition shadow-inner"
+                          style={{
+                            color: gbColor,
+                            borderColor: getSoftColorBg(gbColor, 0.5),
+                            borderWidth: '1.5px',
+                          }}
                         />
                       </td>
                     );
                   })}
-                  <td className="py-2 px-3 text-right">
-                    <button
-                      onClick={() => deleteRow(rIdx)}
-                      disabled={rows.length <= 1}
-                      className="p-1 text-slate-400 hover:text-rose-400 disabled:opacity-30 rounded transition"
-                      title="Bu Satırı Sil"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                  <td className="py-1.5 px-2 text-right">
+                    <div className="flex items-center justify-end space-x-1">
+                      <button
+                        onClick={() => copyRow(row)}
+                        className="p-1 text-slate-400 hover:text-blue-400 rounded transition"
+                        title="Kopyala"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => deleteRow(rIdx)}
+                        disabled={rows.length <= 1}
+                        className="p-1 text-slate-400 hover:text-rose-400 disabled:opacity-30 rounded transition"
+                        title="Sil"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* BOTTOM QUICK ADD BAR */}
+        <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
+          <button
+            onClick={addRow}
+            className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Yeni Satır Ekle (K{rows.length + 1})</span>
+          </button>
+
+          {copiedRow && (
+            <button
+              onClick={pasteRow}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1"
+            >
+              <ClipboardPaste className="w-3.5 h-3.5" />
+              <span>Yapıştır</span>
+            </button>
+          )}
+
+          <div className="text-xs text-slate-400 font-mono ml-auto">
+            Toplam {rows.length} Kurs
+          </div>
         </div>
       </div>
     </div>

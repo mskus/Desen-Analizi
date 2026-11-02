@@ -3,7 +3,6 @@ import { ActiveTab, PatternData, PatternRow, GuideBarConfig, GuideBarId, Machine
 import { patternLibrary, defaultSafetyConfig, createThreadingArray } from './data/patternLibrary';
 import { Navbar } from './components/Navbar';
 import { MachineSettingsTab } from './components/MachineSettingsTab';
-import { PatternTableTab } from './components/PatternTableTab';
 import { SimulationTab } from './components/SimulationTab';
 import { InteractiveEditorTab } from './components/InteractiveEditorTab';
 import { LibraryTab } from './components/LibraryTab';
@@ -175,18 +174,6 @@ export default function App() {
             onChangeMachine={handleUpdateMachine}
             guideBars={currentPattern.guideBars}
             onChangeGuideBar={handleUpdateGuideBar}
-            onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
-          />
-        )}
-
-        {(activeTab === 'editor' || activeTab === 'table') && (
-          <InteractiveEditorTab
-            pattern={currentPattern}
-            onChangeRows={handleUpdateRows}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            canUndo={historyIndex > 0}
-            canRedo={historyIndex < history.length - 1}
             onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
           />
         )}

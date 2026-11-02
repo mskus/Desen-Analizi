@@ -61,4 +61,4 @@ export interface PatternData {
   repeatY: number;
 }
 
-export type ActiveTab = 'machine' | 'table' | 'editor' | 'simulation' | 'library';
+export type ActiveTab = 'simulation' | 'editor' | 'library' | 'machine';
