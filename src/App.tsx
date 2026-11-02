@@ -168,7 +168,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 pb-16">
+      <main className="flex-1 pb-20 md:pb-8">
         {activeTab === 'machine' && (
           <MachineSettingsTab
             machine={currentPattern.machine}

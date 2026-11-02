@@ -781,299 +781,246 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-      {/* 1. Integrated Threading Editor Header (Dolu / Boş İğne Düzenleme) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-          <div className="flex items-center space-x-3">
-            <div className="bg-gradient-to-tr from-blue-600 to-indigo-600 text-white p-2.5 rounded-2xl shadow-lg shadow-blue-500/20">
-              <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <span>İğne Threading (Dolu / Boş Dizim) Editörü</span>
-                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                  {editingGbId} Düzenleniyor
-                </span>
-                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  {needleCols} İğne Koordinat Aralığı
-                </span>
-              </h3>
-              <p className="text-xs text-slate-400">
-                Aşağıdaki iğnelere dokunarak Dolu (●) veya Boş (○) yapın; tüm simülasyon ve kumaş anında güncellenir.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={onOpenSafetySettings}
-              className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition border ${
-                safetyWarnings.length > 0
-                  ? 'bg-amber-950/80 text-amber-300 border-amber-700 hover:bg-amber-900'
-                  : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-750'
-              }`}
-            >
-              {safetyWarnings.length > 0 ? (
-                <ShieldAlert className="w-4 h-4 text-amber-400" />
-              ) : (
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              )}
-              <span>Güvenli Tarak Menüsü ({safety.maxSafeShoggingJump} İğne / {needleCols} Genişlik)</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Tarak Seçimi ve İnteraktif İğneler */}
-        <div className="space-y-3 bg-slate-950/90 p-4 rounded-2xl border border-slate-800">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs text-slate-400 font-bold">Aktif Tarak:</span>
-              <div className="flex space-x-1.5">
-                {activeBars.map((id) => (
-                  <button
-                    key={id}
-                    onClick={() => {
-                      setEditingGbId(id);
-                      requestAnimationFrame(() => {
-                        drawTechnicalDiagram();
-                        drawFabricSimulation();
-                      });
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 border ${
-                      editingGbId === id
-                        ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-400/30'
-                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-                    }`}
-                  >
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ backgroundColor: currentGuideBars[id]?.color || '#3b82f6' }}
-                    />
-                    <span>{id}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* İzole İnceleme & İkili Metin Girişi */}
-            <div className="flex flex-wrap items-center gap-3">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 space-y-4">
+      {/* 1. Minimalist Threading & Guide Bar Toolbar */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3">
+        {/* Top bar: Guide bar selectors & Quick Actions */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          {/* Active Guide Bar Selector */}
+          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+            <span className="text-xs text-slate-400 font-medium mr-1 shrink-0">Tarak:</span>
+            {activeBars.map((id) => (
               <button
+                key={id}
                 onClick={() => {
-                  setIsolateActiveBar((prev) => !prev);
+                  setEditingGbId(id);
                   requestAnimationFrame(() => {
                     drawTechnicalDiagram();
                     drawFabricSimulation();
                   });
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition flex items-center space-x-1.5 ${
-                  isolateActiveBar
-                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/25 font-extrabold'
-                    : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500'
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 border shrink-0 ${
+                  editingGbId === id
+                    ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                    : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
                 }`}
-                title="Sadece seçili tarağın iplik ve ilmeklerini ekranda gösterir, zemin örtülerini ayıklar"
               >
-                <span>{isolateActiveBar ? `★ ${editingGbId} İzole Edildi` : `Sadece ${editingGbId}'yi Göster (İzole)`}</span>
-              </button>
-
-              <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-400 font-mono">Dizim Kodu ({needleCols} Bit):</span>
-                <input
-                  type="text"
-                  value={binaryThreadingInput}
-                  onChange={(e) => handleBinaryInput(e.target.value)}
-                  placeholder="10101010..."
-                  className="w-44 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1 text-xs font-mono font-bold text-blue-400 tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: currentGuideBars[id]?.color || '#3b82f6' }}
                 />
-              </div>
+                <span>{id}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Right Tools: Isolate button & bit notation input */}
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={() => {
+                setIsolateActiveBar((prev) => !prev);
+                requestAnimationFrame(() => {
+                  drawTechnicalDiagram();
+                  drawFabricSimulation();
+                });
+              }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                isolateActiveBar
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              {isolateActiveBar ? `★ ${editingGbId} İzole` : `Sadece ${editingGbId}`}
+            </button>
+
+            <input
+              type="text"
+              value={binaryThreadingInput}
+              onChange={(e) => handleBinaryInput(e.target.value)}
+              placeholder="101010..."
+              className="w-28 sm:w-36 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs font-mono text-blue-400 text-center focus:outline-none focus:border-blue-500"
+              title={`${needleCols} bit ikili dizim kodu`}
+            />
+
+            <button
+              onClick={onOpenSafetySettings}
+              className={`p-1 sm:px-2 sm:py-1 rounded-lg text-xs font-medium border transition ${
+                safetyWarnings.length > 0
+                  ? 'bg-amber-950/60 text-amber-300 border-amber-800'
+                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+              }`}
+              title="Güvenli Tarak Ayarları"
+            >
+              {safetyWarnings.length > 0 ? (
+                <span className="text-amber-400 font-bold">! {safetyWarnings.length} Uyarı</span>
+              ) : (
+                <span className="hidden sm:inline">Limit: {safety.maxSafeShoggingJump} İğne</span>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Needle Button Strip (Mobile Touch Friendly) */}
+        <div className="pt-1">
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5 px-0.5">
+            <span className="font-medium text-slate-300">{editingGbId} İğne Dizimi:</span>
+            <div className="flex items-center space-x-1.5 font-mono text-[11px]">
+              <span className="text-emerald-400">{currentThreading.filter(Boolean).length} Dolu</span>
+              <span>/</span>
+              <span className="text-slate-500">{needleCols - currentThreading.filter(Boolean).length} Boş</span>
             </div>
           </div>
 
-          {/* İ0'dan İ(N-1)'e İnteraktif İğne Düğmeleri */}
-          <div className="pt-2">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-slate-300">
-                {editingGbId} İğne Dizimi:
-              </span>
-              <div className="flex items-center space-x-2 text-xs font-semibold">
-                <span className="text-emerald-400 font-bold">{currentThreading.filter(Boolean).length} Dolu</span>
-                <span className="text-slate-500">/</span>
-                <span className="text-slate-400">{needleCols - currentThreading.filter(Boolean).length} Boş</span>
-                <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 font-bold">
-                  %{((currentThreading.filter(Boolean).length / needleCols) * 100).toFixed(0)} Doluluk
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between overflow-x-auto py-2 gap-1.5 scrollbar-thin">
-              {Array.from({ length: needleCols }).map((_, nIdx) => {
-                const isThreaded = currentThreading[nIdx] ?? false;
-                return (
-                  <button
-                    key={nIdx}
-                    onClick={() => handleToggleNeedle(nIdx)}
-                    className={`flex-1 min-w-[44px] flex flex-col items-center justify-center p-2 rounded-xl transition-all border ${
-                      isThreaded
-                        ? 'bg-blue-950/70 border-blue-500 text-white shadow-md shadow-blue-500/20'
-                        : 'bg-slate-900/80 border-slate-800 text-slate-500 hover:border-slate-700'
+          <div className="flex items-center overflow-x-auto py-1 gap-1.5 scrollbar-thin">
+            {Array.from({ length: needleCols }).map((_, nIdx) => {
+              const isThreaded = currentThreading[nIdx] ?? false;
+              return (
+                <button
+                  key={nIdx}
+                  onClick={() => handleToggleNeedle(nIdx)}
+                  className={`flex-1 min-w-[38px] sm:min-w-[42px] h-12 flex flex-col items-center justify-center rounded-xl transition border touch-manipulation ${
+                    isThreaded
+                      ? 'bg-blue-950/60 border-blue-500 text-white'
+                      : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                  }`}
+                  title={`İğne ${nIdx}: ${isThreaded ? 'Dolu' : 'Boş'}`}
+                >
+                  <span className="text-[10px] font-mono text-slate-400 leading-none">İ{nIdx}</span>
+                  <span
+                    className={`w-3.5 h-3.5 rounded-full mt-1 flex items-center justify-center text-[9px] font-bold ${
+                      isThreaded ? 'border border-white/80' : 'border border-slate-700'
                     }`}
-                    title={`İğne ${nIdx}: ${isThreaded ? 'Dolu (Thread In)' : 'Boş (Thread Out)'} - Tıklayarak Değiştir`}
+                    style={{ backgroundColor: isThreaded ? currentGb.color : 'transparent' }}
                   >
-                    <span className="text-[10px] font-mono font-bold text-slate-400 mb-1">İ{nIdx}</span>
-                    <span
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-transform ${
-                        isThreaded
-                          ? 'border-2 border-white scale-110 shadow'
-                          : 'border border-slate-700 bg-slate-950'
-                      }`}
-                      style={{ backgroundColor: isThreaded ? currentGb.color : 'transparent' }}
-                    >
-                      {isThreaded ? '●' : '○'}
-                    </span>
-                    <span
-                      className={`text-[9px] font-bold mt-1 uppercase ${
-                        isThreaded ? 'text-blue-300' : 'text-slate-500'
-                      }`}
-                    >
-                      {isThreaded ? 'Dolu' : 'Boş'}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+                    {isThreaded ? '' : ''}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Quick Presets Row */}
+        <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-slate-800/80">
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-xs text-slate-400 font-medium mr-1">Şablon:</span>
+            <button
+              onClick={() => handleApplyPreset('5-5')}
+              className="px-2 py-1 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 rounded-lg text-xs font-semibold border border-emerald-800 transition"
+            >
+              5 Dolu 5 Boş
+            </button>
+            <button
+              onClick={() => handleApplyPreset('full')}
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg text-xs border border-slate-800 transition"
+            >
+              Tam Dolu
+            </button>
+            <button
+              onClick={() => handleApplyPreset('1-1')}
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg text-xs border border-slate-800 transition"
+            >
+              1-1
+            </button>
+            <button
+              onClick={() => handleApplyPreset('1-2')}
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg text-xs border border-slate-800 transition hidden sm:inline-block"
+            >
+              1-2
+            </button>
+            <button
+              onClick={() => handleApplyPreset('clear')}
+              className="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 rounded-lg text-xs border border-rose-900 transition"
+            >
+              Tümü Boş
+            </button>
+            <button
+              onClick={() => handleApplyPreset('invert')}
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg text-xs border border-slate-800 transition"
+            >
+              Ters
+            </button>
           </div>
 
-          {/* Hızlı Şablonlar & Tarak İzolasyonu */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-800/80">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-slate-400 font-semibold mr-1">Hızlı Şablonlar:</span>
-              <button
-                onClick={() => handleApplyPreset('5-5')}
-                className="px-3 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 rounded-lg text-xs font-bold border border-emerald-500/40 transition shadow-sm"
-                title="GB3 için 5 Dolu 5 Boş (5-in 5-out) düzeni"
-              >
-                ★ 5 Dolu 5 Boş (5x5)
-              </button>
-              <button
-                onClick={() => handleApplyPreset('full')}
-                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-lg text-xs font-medium border border-slate-800 transition"
-              >
-                Tam Dolu (Full)
-              </button>
-              <button
-                onClick={() => handleApplyPreset('1-1')}
-                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-lg text-xs font-medium border border-slate-800 transition"
-              >
-                1 Dolu 1 Boş
-              </button>
-              <button
-                onClick={() => handleApplyPreset('1-2')}
-                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-lg text-xs font-medium border border-slate-800 transition"
-              >
-                1 Dolu 2 Boş
-              </button>
-              <button
-                onClick={() => handleApplyPreset('clear')}
-                className="px-2.5 py-1 bg-rose-950/50 hover:bg-rose-900/50 text-rose-300 rounded-lg text-xs font-medium border border-rose-800/60 transition"
-              >
-                Tümü Boş
-              </button>
-              <button
-                onClick={() => handleApplyPreset('invert')}
-                className="px-2.5 py-1 bg-indigo-950 hover:bg-indigo-900 text-indigo-300 rounded-lg text-xs font-bold border border-indigo-800 transition"
-              >
-                Tersine Çevir
-              </button>
-            </div>
-
-            {/* Simülasyonda Tarak Görünürlüğü (Zemin taraklarını gizleyip GB3'ü incelemek için) */}
-            <div className="flex items-center space-x-2 pt-1 sm:pt-0">
-              <span className="text-xs text-slate-400 font-semibold">Tarak Görünürlüğü:</span>
-              <div className="flex items-center space-x-1">
-                {activeBars.map((id) => {
-                  const isVis = visibleBars[id] !== false;
-                  const gb = pattern.guideBars[id];
-                  return (
-                    <button
-                      key={id}
-                      onClick={() =>
-                        setVisibleBars((prev) => ({
-                          ...prev,
-                          [id]: !isVis,
-                        }))
-                      }
-                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition ${
-                        isVis
-                          ? 'text-white border-transparent'
-                          : 'bg-slate-950 text-slate-600 border-slate-800 line-through'
-                      }`}
-                      style={{ backgroundColor: isVis ? gb.color : undefined }}
-                      title={`${id} ${isVis ? 'görünür (gizlemek için tıklayın)' : 'gizli (göstermek için tıklayın)'}`}
-                    >
-                      {id}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+          {/* Quick Visibility Filter */}
+          <div className="flex items-center space-x-1 overflow-x-auto">
+            {activeBars.map((id) => {
+              const isVis = visibleBars[id] !== false;
+              const gb = currentGuideBars[id];
+              return (
+                <button
+                  key={id}
+                  onClick={() =>
+                    setVisibleBars((prev) => ({
+                      ...prev,
+                      [id]: !isVis,
+                    }))
+                  }
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition border ${
+                    isVis
+                      ? 'text-white border-transparent'
+                      : 'bg-slate-950 text-slate-600 border-slate-800 line-through'
+                  }`}
+                  style={{ backgroundColor: isVis ? gb?.color : undefined }}
+                  title={`${id} ${isVis ? 'gizle' : 'göster'}`}
+                >
+                  {id}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* 2. Simulation Toolbar (Mode Switcher, Theme, Repeat, Height & Zoom) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          {/* Display Mode */}
-          <div className="flex items-center bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+      {/* 2. Simulation Display Controls */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Display Mode Tabs */}
+          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
             <button
               onClick={() => setDisplayMode('dual')}
-              className={`px-3.5 py-2 text-xs font-bold rounded-xl transition ${
-                displayMode === 'dual' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${
+                displayMode === 'dual' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              İkili Görünüm (Tarak Şeması + Kumaş)
+              İkili
             </button>
             <button
               onClick={() => setDisplayMode('technical')}
-              className={`px-3.5 py-2 text-xs font-bold rounded-xl transition ${
-                displayMode === 'technical' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${
+                displayMode === 'technical' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Teknik Tarak Şeması
+              Tarak Şeması
             </button>
             <button
               onClick={() => setDisplayMode('fabric')}
-              className={`px-3.5 py-2 text-xs font-bold rounded-xl transition ${
-                displayMode === 'fabric' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${
+                displayMode === 'fabric' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Kumaş Simülasyonu
+              Kumaş
             </button>
           </div>
 
-          {/* Theme & Controls */}
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Paper Theme Toggle: Dark vs White */}
+          {/* Controls: Theme, Repeat, Zoom */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setPaperTheme((prev) => (prev === 'dark' ? 'white' : 'dark'))}
-              className="flex items-center space-x-1.5 px-3 py-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-2xl text-xs font-bold transition"
-              title="Teknik Kağıt Teması"
+              className="px-2.5 py-1 bg-slate-950 border border-slate-800 text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-800 transition flex items-center space-x-1"
             >
-              {paperTheme === 'dark' ? <Moon className="w-4 h-4 text-blue-400" /> : <Sun className="w-4 h-4 text-amber-400" />}
-              <span>{paperTheme === 'dark' ? 'Koyu CAD' : 'Beyaz Kağıt'}</span>
+              {paperTheme === 'dark' ? <Moon className="w-3.5 h-3.5 text-blue-400" /> : <Sun className="w-3.5 h-3.5 text-amber-400" />}
+              <span>{paperTheme === 'dark' ? 'CAD Koyu' : 'Beyaz'}</span>
             </button>
 
-            {/* Repeat Selector (2x, 3x, 4x) */}
-            <div className="flex items-center space-x-1.5 bg-slate-950 px-3.5 py-2 rounded-2xl border border-slate-800">
-              <span className="text-xs text-slate-400 font-bold">Tekrar:</span>
-              {[1, 2, 3, 4, 6].map((rep) => (
+            <div className="flex items-center space-x-1 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800 text-xs">
+              <span className="text-slate-400 text-[11px]">Tekrar:</span>
+              {[1, 2, 3, 4].map((rep) => (
                 <button
                   key={rep}
                   onClick={() => setRepeatY(rep)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
-                    repeatY === rep
-                      ? 'bg-blue-600 text-white shadow'
-                      : 'text-slate-400 hover:text-slate-200 bg-slate-900'
+                  className={`px-1.5 py-0.5 rounded text-[11px] font-semibold transition ${
+                    repeatY === rep ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   {rep}x
@@ -1081,117 +1028,96 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               ))}
             </div>
 
-            {/* Height Pitch */}
-            <div className="flex items-center space-x-1.5 bg-slate-950 px-3.5 py-2 rounded-2xl border border-slate-800">
-              <span className="text-xs text-slate-400 font-bold">Yükseklik:</span>
-              <select
-                value={customCoursePitch}
-                onChange={(e) => setCustomCoursePitch(parseInt(e.target.value))}
-                className="bg-transparent text-xs text-slate-200 font-bold focus:outline-none"
-              >
-                <option value={28}>Kompakt (28px)</option>
-                <option value={36}>Standart 1:1 (36px)</option>
-                <option value={44}>Geniş (44px)</option>
-                <option value={52}>Ultra Uzun (52px)</option>
-              </select>
-            </div>
-
-            {/* Zoom Controls */}
-            <div className="flex items-center space-x-1 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+            <div className="flex items-center space-x-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
               <button
                 onClick={() => setZoom((prev) => Math.max(0.6, prev - 0.15))}
-                className="p-1 text-slate-400 hover:text-white rounded-lg"
+                className="p-1 text-slate-400 hover:text-white rounded"
                 title="Uzaklaştır"
               >
-                <ZoomOut className="w-4 h-4" />
+                <ZoomOut className="w-3.5 h-3.5" />
               </button>
-              <span className="text-xs font-mono px-2 text-slate-300 font-bold">{Math.round(zoom * 100)}%</span>
+              <span className="text-[11px] font-mono px-1 text-slate-300">{Math.round(zoom * 100)}%</span>
               <button
                 onClick={() => setZoom((prev) => Math.min(2.0, prev + 0.15))}
-                className="p-1 text-slate-400 hover:text-white rounded-lg"
+                className="p-1 text-slate-400 hover:text-white rounded"
                 title="Yakınlaştır"
               >
-                <ZoomIn className="w-4 h-4" />
+                <ZoomIn className="w-3.5 h-3.5" />
               </button>
               <button
                 onClick={() => setZoom(1.0)}
-                className="p-1 text-slate-500 hover:text-slate-300 rounded-lg"
+                className="p-1 text-slate-500 hover:text-slate-300 rounded"
                 title="Sıfırla"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-3 h-3" />
               </button>
             </div>
           </div>
         </div>
 
         {/* Checkbox Layers */}
-        <div className="flex flex-wrap items-center gap-6 pt-3 border-t border-slate-800 text-xs text-slate-200 font-semibold">
-          <label className="flex items-center space-x-2 cursor-pointer">
+        <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-slate-800/80 text-xs text-slate-300">
+          <label className="flex items-center space-x-1.5 cursor-pointer">
             <input
               type="checkbox"
               checked={showStepNumbers}
               onChange={(e) => setShowStepNumbers(e.target.checked)}
-              className="w-4 h-4 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-blue-500"
+              className="w-3.5 h-3.5 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-0"
             />
-            <span>Haraketin Yanında Adım Sayısı (Δ Adım)</span>
+            <span>Δ Adım Sayısı</span>
           </label>
 
-          <label className="flex items-center space-x-2 cursor-pointer">
+          <label className="flex items-center space-x-1.5 cursor-pointer">
             <input
               type="checkbox"
               checked={showLoopCurves}
               onChange={(e) => setShowLoopCurves(e.target.checked)}
-              className="w-4 h-4 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-blue-500"
+              className="w-3.5 h-3.5 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-0"
             />
-            <span>İlmek Altı & Üstü Eğrisi (Underlap & Overlap)</span>
+            <span>İlmek Eğrileri</span>
           </label>
 
-          <label className="flex items-center space-x-2 cursor-pointer">
+          <label className="flex items-center space-x-1.5 cursor-pointer">
             <input
               type="checkbox"
               checked={showPoreMesh}
               onChange={(e) => setShowPoreMesh(e.target.checked)}
-              className="w-4 h-4 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-blue-500"
+              className="w-3.5 h-3.5 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-0"
             />
-            <span>Gözenek & Delik Analiz Ağı</span>
+            <span>Gözenek Analizi</span>
           </label>
 
-          <div className="ml-auto text-xs text-slate-400 font-mono">
-            Toplam Kurs: <strong className="text-white">{totalCourses}</strong> | İğne Eni: {needleCols} İğne
-          </div>
+          <span className="ml-auto text-[11px] text-slate-500 font-mono">
+            {totalCourses} Kurs · {needleCols} İğne
+          </span>
         </div>
       </div>
 
-      {/* 3. Visualization Viewport (Dynamic canvas height, zoom, scrollable) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Technical Diagram Panel */}
+      {/* 3. Canvases Viewport */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Technical Diagram */}
         {(displayMode === 'dual' || displayMode === 'technical') && (
           <div
-            className={`bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden ${
+            className={`bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden ${
               displayMode === 'dual' ? 'lg:col-span-7' : 'lg:col-span-12'
             }`}
           >
-            <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Layers className="w-5 h-5 text-blue-400" />
-                <h4 className="font-bold text-sm text-white">
-                  Teknik Tarak Şeması (Point Paper & Adım Sayıları)
-                </h4>
-              </div>
-
+            <div className="px-3.5 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <span className="font-semibold text-xs text-slate-200">
+                Teknik Tarak Şeması (Point Paper)
+              </span>
               <button
                 onClick={() =>
                   downloadSimulationImage(technicalCanvasRef.current, `${pattern.title}_tarak_semasi.png`)
                 }
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition"
+                className="flex items-center space-x-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs transition"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>PNG İndir</span>
+                <span>PNG</span>
               </button>
             </div>
 
-            {/* Scrollable Viewport with dynamic height */}
-            <div className="p-4 overflow-auto max-h-[820px] bg-[#070b14] flex justify-center">
+            <div className="p-3 overflow-auto max-h-[750px] bg-[#070b14] flex justify-center">
               <div
                 style={{
                   transform: `scale(${zoom})`,
@@ -1203,39 +1129,36 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                   ref={technicalCanvasRef}
                   width={techCanvasWidth}
                   height={canvasHeight}
-                  className="rounded-2xl border border-slate-800 shadow-2xl transition-colors duration-200"
+                  className="rounded-xl border border-slate-800"
                 />
               </div>
             </div>
           </div>
         )}
 
-        {/* Realistic Fabric Simulation Panel */}
+        {/* Fabric Simulation */}
         {(displayMode === 'dual' || displayMode === 'fabric') && (
           <div
-            className={`bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden ${
+            className={`bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden ${
               displayMode === 'dual' ? 'lg:col-span-5' : 'lg:col-span-12'
             }`}
           >
-            <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Sparkles className="w-5 h-5 text-indigo-400" />
-                <h4 className="font-bold text-sm text-white">Kumaş Yüzey Simülasyonu & Threading</h4>
-              </div>
-
+            <div className="px-3.5 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <span className="font-semibold text-xs text-slate-200">
+                Kumaş Yüzey Simülasyonu
+              </span>
               <button
                 onClick={() =>
                   downloadSimulationImage(fabricCanvasRef.current, `${pattern.title}_kumas_simulasyonu.png`)
                 }
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition"
+                className="flex items-center space-x-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs transition"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>PNG İndir</span>
+                <span>PNG</span>
               </button>
             </div>
 
-            {/* Scrollable Fabric Viewport */}
-            <div className="p-4 overflow-auto max-h-[820px] bg-[#05070d] flex justify-center">
+            <div className="p-3 overflow-auto max-h-[750px] bg-[#05070d] flex justify-center">
               <div
                 style={{
                   transform: `scale(${zoom})`,
@@ -1247,7 +1170,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                   ref={fabricCanvasRef}
                   width={fabricCanvasWidth}
                   height={canvasHeight}
-                  className="rounded-2xl border border-slate-800 shadow-2xl bg-[#0a0f1e]"
+                  className="rounded-xl border border-slate-800 bg-[#0a0f1e]"
                 />
               </div>
             </div>

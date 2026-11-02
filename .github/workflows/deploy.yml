@@ -1,0 +1,51 @@
+name: GitHub Pages Canlı Yayınlama (Deploy)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu Çek (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Node.js Kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Bağımlılıkları Yükle
+        run: npm ci || npm install
+
+      - name: Projeyi Derle (Build)
+        run: npm run build
+
+      - name: GitHub Pages Yapılandırması
+        uses: actions/configure-pages@v5
+
+      - name: Dist Klasörünü Yükle (Artifact)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+      - name: Canlıya Yayınla (Deploy to GitHub Pages)
+        id: deployment
+        uses: actions/deploy-pages@v4

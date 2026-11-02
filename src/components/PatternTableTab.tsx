@@ -219,64 +219,25 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-      {/* 1. Quick Notation Parser */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <div className="bg-blue-600/20 text-blue-400 p-2.5 rounded-xl border border-blue-500/30">
-              <Wand2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white">Hızlı Notasyon & Kod Girişi</h3>
-              <p className="text-xs text-slate-400">
-                Örn: <code className="text-blue-400 bg-slate-950 px-1 py-0.5 rounded">1-0/1-2/2-1</code> veya{' '}
-                <code className="text-blue-400 bg-slate-950 px-1 py-0.5 rounded">0 1 2 1 0</code>
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={onUndo}
-              disabled={!canUndo}
-              className="flex items-center space-x-1 px-3 py-1.5 text-xs font-medium bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-40 rounded-lg border border-slate-700 transition"
-              title="Geri Al"
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 space-y-3">
+      {/* 1. Quick Tools Bar (Notation + Copy GB + Undo/Redo) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3">
+        {/* Row 1: Quick Notation Parser */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="flex items-center space-x-1.5 shrink-0">
+            <span className="text-xs text-slate-400 font-medium">Hızlı Notasyon:</span>
+            <select
+              value={selectedGbForQuick}
+              onChange={(e) => setSelectedGbForQuick(e.target.value as GuideBarId)}
+              className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none"
             >
-              <Undo2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Geri Al</span>
-            </button>
-            <button
-              onClick={onRedo}
-              disabled={!canRedo}
-              className="flex items-center space-x-1 px-3 py-1.5 text-xs font-medium bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-40 rounded-lg border border-slate-700 transition"
-              title="Yinele"
-            >
-              <Redo2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Yinele</span>
-            </button>
+              {guideBarIds.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
-
-        {quickError && (
-          <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{quickError}</span>
-          </div>
-        )}
-
-        <div className="flex flex-col sm:flex-row gap-3 pt-1">
-          <select
-            value={selectedGbForQuick}
-            onChange={(e) => setSelectedGbForQuick(e.target.value as GuideBarId)}
-            className="bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-52"
-          >
-            {guideBarIds.map((id) => (
-              <option key={id} value={id}>
-                {id} - {guideBars[id].name.split('(')[1]?.replace(')', '') || guideBars[id].name}
-              </option>
-            ))}
-          </select>
 
           <input
             type="text"
@@ -285,200 +246,154 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
               setQuickInputText(e.target.value);
               setQuickError(null);
             }}
-            placeholder="Örn: 1-0 / 1-2 / 2-3 / 1-0 veya 1 0 2 1"
-            className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Örn: 1-0 / 1-2 / 2-3 veya 0 1 2 1"
+            className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleQuickNotationParse();
             }}
           />
 
-          <button
-            onClick={handleQuickNotationParse}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm rounded-xl shadow-md shadow-blue-600/30 transition whitespace-nowrap"
-          >
-            Hızlı Yükle
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Direct Guide Bar Copy Tool (Örnek: GP3 to GP4) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
-        <div className="flex items-center space-x-3">
-          <div className="bg-indigo-600/20 text-indigo-400 p-2 rounded-xl border border-indigo-500/30">
-            <ArrowRightLeft className="w-5 h-5" />
+          <div className="flex items-center space-x-1.5 shrink-0">
+            <button
+              onClick={handleQuickNotationParse}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-lg transition"
+            >
+              Yükle
+            </button>
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="p-1.5 bg-slate-950 border border-slate-800 text-slate-300 disabled:opacity-30 rounded-lg hover:bg-slate-800 transition"
+              title="Geri Al"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="p-1.5 bg-slate-950 border border-slate-800 text-slate-300 disabled:opacity-30 rounded-lg hover:bg-slate-800 transition"
+              title="Yinele"
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
           </div>
-          <div>
-            <h3 className="text-sm font-bold text-white">Tarak Değerlerini Doğrudan Kopyala (Örn: GB3 → GB4)</h3>
-            <p className="text-xs text-slate-400">Tüm kurslardaki tarak hareket dizisini tek tıkla başka bir tarağa aktarın.</p>
-          </div>
         </div>
 
-        {copySuccessMsg && (
-          <div className="p-2.5 bg-emerald-950/60 border border-emerald-800 text-emerald-300 rounded-xl text-xs flex items-center space-x-2">
-            <Check className="w-4 h-4 shrink-0" />
-            <span>{copySuccessMsg}</span>
+        {quickError && (
+          <div className="p-2 bg-rose-950/60 border border-rose-800 rounded-lg text-xs text-rose-300 flex items-center space-x-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            <span>{quickError}</span>
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-3 pt-1">
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-400 font-medium">Kaynak Tarak:</span>
+        {/* Row 2: Tarak Kopyalama (GB3 -> GB4) */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+          <div className="flex items-center space-x-2 text-xs">
+            <span className="text-slate-400 font-medium">Tarak Kopyala:</span>
             <select
               value={copySourceGb}
               onChange={(e) => setCopySourceGb(e.target.value as GuideBarId)}
-              className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-semibold"
+              className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 text-xs"
             >
               {guideBarIds.map((id) => (
                 <option key={id} value={id}>
-                  {id} ({guideBars[id].yarnType})
+                  {id}
                 </option>
               ))}
             </select>
-          </div>
-
-          <span className="text-slate-500 text-xs font-bold">➔</span>
-
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-400 font-medium">Hedef Tarak:</span>
+            <span className="text-slate-600">→</span>
             <select
               value={copyTargetGb}
               onChange={(e) => setCopyTargetGb(e.target.value as GuideBarId)}
-              className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-semibold"
+              className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 text-xs"
             >
               {guideBarIds.map((id) => (
                 <option key={id} value={id}>
-                  {id} ({guideBars[id].yarnType})
+                  {id}
                 </option>
               ))}
             </select>
+            <button
+              onClick={handleCopyGuideBar}
+              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 transition"
+            >
+              Aktar
+            </button>
           </div>
 
-          <button
-            onClick={handleCopyGuideBar}
-            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/30 transition flex items-center space-x-1.5"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span>{copySourceGb} → {copyTargetGb} Değerlerini Kopyala</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 3. Action Buttons & Table Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={addRow}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/30 rounded-xl text-xs font-semibold transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Satır Ekle</span>
-          </button>
-
-          <button
-            onClick={mirrorRows}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-semibold transition"
-            title="Deseni Ayna Yansıt (Mirror)"
-          >
-            <Copy className="w-4 h-4 text-blue-400" />
-            <span>Aynala (Mirror)</span>
-          </button>
-
-          <button
-            onClick={shiftRowsUp}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-semibold transition"
-            title="Yukarı Kaydır"
-          >
-            <ArrowUp className="w-4 h-4 text-indigo-400" />
-            <span>Kaydır</span>
-          </button>
-        </div>
-
-        {/* Fixed working clear / reset button without alert/confirm */}
-        <div>
-          {!isConfirmingClear ? (
-            <button
-              onClick={() => setIsConfirmingClear(true)}
-              className="flex items-center space-x-1.5 px-3.5 py-2 bg-rose-600/20 text-rose-300 hover:bg-rose-600/30 border border-rose-500/30 rounded-xl text-xs font-semibold transition"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span>Hepsini Sil / Sıfırla</span>
-            </button>
-          ) : (
-            <div className="flex items-center space-x-2 bg-rose-950/80 border border-rose-700 p-1.5 rounded-xl">
-              <span className="text-xs text-rose-200 font-semibold pl-2">Tüm tablo silinsin mi?</span>
-              <button
-                onClick={handleClearTableConfirmed}
-                className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Evet, Sil</span>
-              </button>
-              <button
-                onClick={() => setIsConfirmingClear(false)}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition"
-              >
-                Vazgeç
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 4. Pattern Diagnostics & Error Explanations (Hata Açıklama Paneli) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2.5">
-            {issues.length > 0 ? (
-              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
-            ) : (
-              <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
-            )}
-            <h4 className="font-bold text-sm text-white">Desen Kontrol & Hata Açıklama Raporu</h4>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={onOpenSafetySettings}
-              className="flex items-center space-x-1 px-3 py-1 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-              <span>Güvenlik Sınırı: {safety.maxSafeShoggingJump} İğne</span>
-            </button>
-            <span
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                issues.length > 0
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-              }`}
-            >
-              {issues.length > 0 ? `${issues.length} Uyarı Bulundu` : 'Sıfır Hata'}
+          {copySuccessMsg && (
+            <span className="text-emerald-400 text-xs flex items-center space-x-1">
+              <Check className="w-3.5 h-3.5" />
+              <span>{copySuccessMsg}</span>
             </span>
+          )}
+
+          {/* Row actions: Ekle, Aynala, Kaydır, Sıfırla */}
+          <div className="flex items-center space-x-1.5 ml-auto">
+            <button
+              onClick={addRow}
+              className="px-2.5 py-1 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-800 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Satır</span>
+            </button>
+            <button
+              onClick={mirrorRows}
+              className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded-lg text-xs transition"
+              title="Aynala"
+            >
+              Aynala
+            </button>
+            <button
+              onClick={shiftRowsUp}
+              className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded-lg text-xs transition"
+              title="Yukarı Kaydır"
+            >
+              Kaydır
+            </button>
+
+            {!isConfirmingClear ? (
+              <button
+                onClick={() => setIsConfirmingClear(true)}
+                className="px-2 py-1 text-rose-400 hover:bg-rose-950/40 rounded-lg text-xs transition"
+                title="Hepsini Sıfırla"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <div className="flex items-center space-x-1 bg-rose-950/80 border border-rose-800 p-0.5 rounded-lg text-xs">
+                <button
+                  onClick={handleClearTableConfirmed}
+                  className="px-2 py-0.5 bg-rose-600 text-white rounded font-bold text-[11px]"
+                >
+                  Sil
+                </button>
+                <button
+                  onClick={() => setIsConfirmingClear(false)}
+                  className="px-1.5 py-0.5 text-slate-300 text-[11px]"
+                >
+                  İptal
+                </button>
+              </div>
+            )}
           </div>
         </div>
-
-        {issues.length === 0 ? (
-          <p className="text-xs text-slate-400">
-            ✓ Tüm tarak hareketleri ve iğne atlama mesafeleri endüstriyel standartlara ve makine sınırlarına (0-2 adım) uygundur.
-          </p>
-        ) : (
-          <div className="space-y-2 pt-1 max-h-48 overflow-y-auto pr-1">
-            {issues.map((issue, idx) => (
-              <div
-                key={idx}
-                className="p-3 bg-amber-950/30 border border-amber-800/60 rounded-xl text-xs text-amber-200 flex items-start space-x-3"
-              >
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <div>
-                  <div className="font-semibold text-white">
-                    {issue.gbId} - Kurs #{issue.courseIndex} ({issue.prevVal} ➔ {issue.currVal})
-                  </div>
-                  <div className="text-amber-300/90 leading-relaxed mt-0.5">{issue.message}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
+
+      {/* 2. Compact Diagnostics Bar */}
+      {issues.length > 0 && (
+        <div className="bg-amber-950/40 border border-amber-800/80 rounded-xl p-2.5 text-xs text-amber-200 space-y-1 max-h-32 overflow-y-auto">
+          <div className="flex items-center space-x-1.5 font-bold text-amber-300">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>{issues.length} Güvenlik Uyarısı (Aşırı Atlama):</span>
+          </div>
+          {issues.map((issue, idx) => (
+            <div key={idx} className="pl-5 text-amber-300/90 text-[11px]">
+              • {issue.gbId} (Kurs #{issue.courseIndex}): {issue.prevVal} ➔ {issue.currVal} ({issue.jump} iğne atlama)
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 5. Dynamic Code Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
