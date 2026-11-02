@@ -36,7 +36,7 @@ jobs:
         run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
       - name: Projeyi Derle (Build)
-        run: npm run build
+        run: npm run build && touch ./dist/.nojekyll
 
       - name: GitHub Pages Yapılandırması
         uses: actions/configure-pages@v5
