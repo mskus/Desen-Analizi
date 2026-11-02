@@ -1,0 +1,6 @@
+{
+  "name": "WarpKnitt Pro - Çözgülü Örme Simülatörü & Desen Tasarım Stüdyosu",
+  "description": "Profesyonel Çözgülü Örme (Warp Knitting) Makine Ayarları, 15+ Hazır Desen Kütüphanesi, Zincir Diyagramı ve Çoklu Açı 3D Kumaş Simülatörü.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
