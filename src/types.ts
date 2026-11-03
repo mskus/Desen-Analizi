@@ -13,12 +13,24 @@ export interface GuideBarConfig {
 }
 
 export interface SafetyConfig {
-  maxSafeShoggingJump: number; // Maximum allowed needle jump per course (default: 2 needles)
-  maxAllowedNeedleNumber: number; // Maximum needle coordinate (e.g. 12)
+  maxSafeShoggingJump: number; // Maximum allowed needle jump per course (default: 2-6 needles)
+  maxAllowedNeedleNumber: number; // Maximum needle coordinate (e.g. 18)
   enableClashDetection: boolean; // Detect bar-to-bar collision or cross tension
   maxSafeRpm: number; // Machine speed warning threshold
   autoClampJumps: boolean; // Automatically clamp values exceeding safety
   warnOnEmptyNeedleKnitting: boolean; // Warn if loop formed without thread
+  loopFormationRequired: boolean; // Makinede ilmek attırma gerekiyor mu? (Overlap zorunlu)
+  detectWrongLoops: boolean; // Yanlış ilmek tespit ve uyarı mekanizması
+}
+
+export interface LoopWarning {
+  id: string;
+  courseIndex: number;
+  gbId: GuideBarId;
+  type: 'excessive_jump' | 'empty_needle' | 'no_overlap' | 'clash' | 'out_of_bounds';
+  message: string;
+  severity: 'error' | 'warning';
+  needle: number;
 }
 
 export interface MachineProfile {
@@ -33,17 +45,22 @@ export interface MachineProfile {
   walesPerCm: number;
   rpm: number;
   efficiency: number; // %
+  loopFormationRequired?: boolean; // Makinede ilmek attırma zorunlu mu?
 }
 
 export interface PatternRow {
   id: string;
   courseIndex: number;
+  stepIndex?: number; // 1, 2, 3, 4 (Fotoğraftaki gibi 4 farklı adım)
   GB1: number;
   GB2: number;
   GB3: number;
   GB4: number;
   GB5: number;
   GB6: number;
+  notation?: string; // e.g. "9-10-9-10"
+  loopSubSteps?: Partial<Record<GuideBarId, number[]>>; // e.g. GB3: [9, 10, 9, 10]
+  loopTypes?: Partial<Record<GuideBarId, 'open' | 'closed' | 'miss' | 'tuck'>>;
 }
 
 export interface PatternData {
@@ -62,3 +79,34 @@ export interface PatternData {
 }
 
 export type ActiveTab = 'simulation' | 'editor' | 'library' | 'machine';
+
+export interface LoopInspectorNode {
+  courseIndex: number;
+  gbId: GuideBarId;
+  needle: number;
+  needleIndex?: number;
+  loopType: string;
+  loopTypeName?: string;
+  yarnColor?: string;
+  yarnDtex?: number;
+  overlapShift?: number;
+  notationString?: string;
+  isOvercrowded?: boolean;
+  threadCountOnNeedle?: number;
+  isOverTensioned?: boolean;
+  shoggingJump?: number;
+  warnings?: string[];
+}
+
+export interface LoopLayerConfig {
+  gbId: GuideBarId;
+  visible: boolean;
+  color: string;
+  dtex: number;
+  showLoopHeads?: boolean;
+  showUnderlapFloats?: boolean;
+  showNeedleBedGrid?: boolean;
+  showIntersectionNodes?: boolean;
+  showTensionHeatmap?: boolean;
+  showLoopTypeBadges?: boolean;
+}

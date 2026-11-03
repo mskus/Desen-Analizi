@@ -25,6 +25,8 @@ export const defaultSafetyConfig: SafetyConfig = {
   maxSafeRpm: 1000,
   autoClampJumps: true,
   warnOnEmptyNeedleKnitting: true,
+  loopFormationRequired: true, // Makinede ilmek attırma varsayılan aktif
+  detectWrongLoops: true, // Yanlış ilmek tespit ve uyarı sistemi
 };
 
 export const createCarpetGuideBars = (): Record<'GB1' | 'GB2' | 'GB3' | 'GB4' | 'GB5' | 'GB6', GuideBarConfig> => ({
@@ -110,25 +112,18 @@ export const defaultMachine = {
   efficiency: 85,
 };
 
+import { PHOTO_MACHINE_PATTERN_ROWS } from '../utils/loopEngine';
+
 // 10 Adet Halıya Uygun Sıfırdan Oluşturulmuş Desen (Maksimum tekte 6 atlama, GB3 5 dolu 5 boş, GB5-GB6 zemin Full)
 export const patternLibrary: PatternData[] = [
   {
-    id: 'carpet-1',
-    title: '1. Bukle Havlı Otel Halısı',
+    id: 'carpet-machine-photo',
+    title: '1. Makine Ekran Deseni (4 Adımlı Kurs)',
     category: 'Bukle & Havlı',
-    description: 'Dayanıklı ticari ve otel alanları için GB3 5 dolu 5 boş rölyef bukle şeritleri ile GB5 ve GB6 tam dolu zemin taban örgüsü.',
+    description: 'Fotoğraftaki gerçek makine ekranı deseni. Kurs 1 ve diğer kurslar 4 farklı makine adımında çalışır.',
     difficulty: 'Orta',
-    createdAt: '02.11.2026 10:14',
-    rows: [
-      { id: 'c1-1', courseIndex: 1, GB1: 1, GB2: 2, GB3: 0, GB4: 4, GB5: 1, GB6: 0 },
-      { id: 'c1-2', courseIndex: 2, GB1: 0, GB2: 1, GB3: 1, GB4: 4, GB5: 0, GB6: 1 },
-      { id: 'c1-3', courseIndex: 3, GB1: 2, GB2: 3, GB3: 4, GB4: 0, GB5: 1, GB6: 2 },
-      { id: 'c1-4', courseIndex: 4, GB1: 3, GB2: 4, GB3: 3, GB4: 0, GB5: 0, GB6: 1 },
-      { id: 'c1-5', courseIndex: 5, GB1: 4, GB2: 2, GB3: 6, GB4: 4, GB5: 1, GB6: 0 },
-      { id: 'c1-6', courseIndex: 6, GB1: 3, GB2: 1, GB3: 5, GB4: 4, GB5: 0, GB6: 1 },
-      { id: 'c1-7', courseIndex: 7, GB1: 2, GB2: 0, GB3: 3, GB4: 0, GB5: 1, GB6: 2 },
-      { id: 'c1-8', courseIndex: 8, GB1: 1, GB2: 1, GB3: 2, GB4: 0, GB5: 0, GB6: 1 },
-    ],
+    createdAt: '03.11.2026 13:03',
+    rows: PHOTO_MACHINE_PATTERN_ROWS,
     guideBars: createCarpetGuideBars(),
     machine: { ...defaultMachine },
     safety: { ...defaultSafetyConfig },

@@ -11,7 +11,17 @@ import { SafetySettingsModal } from './components/SafetySettingsModal';
 import { SavePatternModal } from './components/SavePatternModal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('simulation');
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    const saved = localStorage.getItem('warpknitt_active_tab');
+    if (saved && ['simulation', 'editor', 'machine', 'library'].includes(saved)) {
+      return saved as ActiveTab;
+    }
+    return 'simulation';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('warpknitt_active_tab', activeTab);
+  }, [activeTab]);
 
   // Custom user patterns stored in localStorage
   const [customPatterns, setCustomPatterns] = useState<PatternData[]>(() => {
@@ -192,9 +202,10 @@ export default function App() {
 
         {activeTab === 'simulation' && (
           <SimulationTab
-            key={currentPattern.id}
             pattern={currentPattern}
             onChangeGuideBar={handleUpdateGuideBar}
+            onChangeRows={handleUpdateRows}
+            onChangeSafety={handleUpdateSafety}
             onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
           />
         )}

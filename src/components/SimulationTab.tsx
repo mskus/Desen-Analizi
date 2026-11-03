@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { PatternData, GuideBarId, GuideBarConfig, SafetyConfig } from '../types';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { PatternData, GuideBarId, GuideBarConfig, SafetyConfig, PatternRow } from '../types';
 import {
   Layers,
   ZoomIn,
@@ -12,23 +12,70 @@ import {
   Sliders,
   Sun,
   Moon,
-  Info
+  Info,
+  Maximize2
 } from 'lucide-react';
 
 interface SimulationTabProps {
   pattern: PatternData;
   onChangeGuideBar: (id: GuideBarId, updated: GuideBarConfig) => void;
+  onChangeRows?: (rows: PatternRow[]) => void;
+  onChangeSafety?: (safety: SafetyConfig) => void;
   onOpenSafetySettings: () => void;
 }
 
 type SimulationDisplayMode = 'dual' | 'technical' | 'fabric';
 
+const SIMULATION_SETTINGS_KEY = 'warpknitt_simulation_settings';
+
+interface StoredSimSettings {
+  displayMode?: SimulationDisplayMode;
+  paperTheme?: 'dark' | 'white';
+  repeatY?: number;
+  showStepNumbers?: boolean;
+  showLoopCurves?: boolean;
+  showPoreMesh?: boolean;
+  isolateActiveBar?: boolean;
+  editingGbId?: GuideBarId;
+  visibleBars?: Record<GuideBarId, boolean>;
+  isAutoZoom?: boolean;
+  zoom?: number;
+}
+
+const getInitialSimSettings = (): StoredSimSettings => {
+  try {
+    const saved = localStorage.getItem(SIMULATION_SETTINGS_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch (e) {
+    console.error('Failed to parse simulation settings', e);
+  }
+  return {};
+};
+
 export const SimulationTab: React.FC<SimulationTabProps> = ({
   pattern,
   onChangeGuideBar,
+  onChangeSafety,
   onOpenSafetySettings,
 }) => {
-  const [displayMode, setDisplayMode] = useState<SimulationDisplayMode>('dual');
+  const simWrapperRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleSimFullscreen = () => {
+    if (!simWrapperRef.current) return;
+    if (!document.fullscreenElement) {
+      simWrapperRef.current.requestFullscreen().catch((err) => console.error(err));
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen().catch((err) => console.error(err));
+      setIsFullscreen(false);
+    }
+  };
+  const savedSettings = getInitialSimSettings();
+
+  const [displayMode, setDisplayMode] = useState<SimulationDisplayMode>(
+    savedSettings.displayMode || 'dual'
+  );
 
   // Maintain local guideBars state for 0ms instantaneous canvas reflection
   const [guideBarsState, setGuideBarsState] = useState<Record<GuideBarId, GuideBarConfig>>(pattern.guideBars);
@@ -36,30 +83,78 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   // Sync when pattern prop updates from parent
   useEffect(() => {
     setGuideBarsState(pattern.guideBars);
-  }, [pattern.guideBars]);
+  }, [pattern.guideBars, pattern.rows]);
+
+  // Touch pinch-to-zoom ref
+  const touchDistRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      touchDistRef.current = dist;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && touchDistRef.current !== null) {
+      const newDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const delta = newDist - touchDistRef.current;
+      if (Math.abs(delta) > 8) {
+        const zoomFactor = delta > 0 ? 0.04 : -0.04;
+        setIsAutoZoom(false);
+        setZoom((prev) => Math.max(0.4, Math.min(2.5, prev + zoomFactor)));
+        touchDistRef.current = newDist;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchDistRef.current = null;
+  };
 
   // Isolate active editing guide bar in simulation canvas
-  const [isolateActiveBar, setIsolateActiveBar] = useState<boolean>(false);
+  const [isolateActiveBar, setIsolateActiveBar] = useState<boolean>(savedSettings.isolateActiveBar ?? false);
 
   // Currently selected guide bar for in-simulation threading editor
-  const [editingGbId, setEditingGbId] = useState<GuideBarId>('GB3');
+  const [editingGbId, setEditingGbId] = useState<GuideBarId>(savedSettings.editingGbId || 'GB3');
   const [binaryThreadingInput, setBinaryThreadingInput] = useState<string>('');
 
   // Paper mode: 'dark' (CAD) or 'white' (Classical Karl Mayer point paper as in user image)
-  const [paperTheme, setPaperTheme] = useState<'dark' | 'white'>('dark');
+  const [paperTheme, setPaperTheme] = useState<'dark' | 'white'>(savedSettings.paperTheme || 'dark');
 
   // Layer switches
-  const [showStepNumbers, setShowStepNumbers] = useState(true);
-  const [showLoopCurves, setShowLoopCurves] = useState(true);
-  const [showPoreMesh, setShowPoreMesh] = useState(true);
+  const [showStepNumbers, setShowStepNumbers] = useState(savedSettings.showStepNumbers ?? true);
+  const [showLoopCurves, setShowLoopCurves] = useState(savedSettings.showLoopCurves ?? true);
+  const [showPoreMesh, setShowPoreMesh] = useState(savedSettings.showPoreMesh ?? true);
 
   // Repeat and dimension controls (2x 3x 4x tablo uzasın, yükseklik & zoom)
-  const [repeatY, setRepeatY] = useState<number>(2);
-  const [zoom, setZoom] = useState<number>(1);
+  const [repeatY, setRepeatY] = useState<number>(savedSettings.repeatY ?? 2);
+  const [isAutoZoom, setIsAutoZoom] = useState<boolean>(savedSettings.isAutoZoom ?? true);
+  const [zoom, setZoom] = useState<number>(savedSettings.zoom ?? 1);
   const [customCoursePitch, setCustomCoursePitch] = useState<number>(36);
+
+  // Guide bar visibility toggles (allows isolating GB3 or any specific bar)
+  const [visibleBars, setVisibleBars] = useState<Record<GuideBarId, boolean>>(
+    savedSettings.visibleBars || {
+      GB1: true,
+      GB2: true,
+      GB3: true,
+      GB4: true,
+      GB5: true,
+      GB6: true,
+    }
+  );
 
   const technicalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const fabricCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const techContainerRef = useRef<HTMLDivElement | null>(null);
+  const fabricContainerRef = useRef<HTMLDivElement | null>(null);
 
   // DYNAMIC NEEDLE COUNT: Tied directly to pattern.safety.maxAllowedNeedleNumber!
   const needleCols = Math.max(8, Math.min(48, pattern.safety?.maxAllowedNeedleNumber || 18));
@@ -78,6 +173,61 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   const canvasHeight = Math.max(620, totalCourses * coursePitch + 170);
   const techCanvasWidth = needleCols * needlePitch + 340;
   const fabricCanvasWidth = needleCols * needlePitch + 160;
+
+  // Fit to screen height auto calculation (*Sığdır dikey olmalı)
+  const calculateSimFitZoom = useCallback(() => {
+    if (!isAutoZoom) return;
+    const container = techContainerRef.current || fabricContainerRef.current;
+    if (!container) return;
+
+    const availHeight = container.clientHeight > 0 ? container.clientHeight - 20 : 650;
+    if (availHeight > 0 && canvasHeight > 0) {
+      const fit = availHeight / canvasHeight;
+      const clamped = Math.max(0.35, Math.min(1.5, Math.floor(fit * 100) / 100));
+      setZoom(clamped);
+    }
+  }, [isAutoZoom, canvasHeight]);
+
+  useEffect(() => {
+    calculateSimFitZoom();
+  }, [calculateSimFitZoom, needleCols, displayMode]);
+
+  useEffect(() => {
+    if (!isAutoZoom) return;
+    const handleResize = () => calculateSimFitZoom();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isAutoZoom, calculateSimFitZoom]);
+
+  // Save settings to localStorage on state changes
+  useEffect(() => {
+    const settingsToSave: StoredSimSettings = {
+      displayMode,
+      paperTheme,
+      repeatY,
+      showStepNumbers,
+      showLoopCurves,
+      showPoreMesh,
+      isolateActiveBar,
+      editingGbId,
+      visibleBars,
+      isAutoZoom,
+      zoom,
+    };
+    localStorage.setItem(SIMULATION_SETTINGS_KEY, JSON.stringify(settingsToSave));
+  }, [
+    displayMode,
+    paperTheme,
+    repeatY,
+    showStepNumbers,
+    showLoopCurves,
+    showPoreMesh,
+    isolateActiveBar,
+    editingGbId,
+    visibleBars,
+    isAutoZoom,
+    zoom,
+  ]);
 
   // Current editing guide bar config and threading array
   const currentGb = currentGuideBars[editingGbId] || currentGuideBars.GB3 || currentGuideBars.GB1;
@@ -122,16 +272,6 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       drawFabricSimulation(newGuideBars);
     });
   };
-
-  // Guide bar visibility toggles (allows isolating GB3 or any specific bar)
-  const [visibleBars, setVisibleBars] = useState<Record<GuideBarId, boolean>>({
-    GB1: true,
-    GB2: true,
-    GB3: true,
-    GB4: true,
-    GB5: true,
-    GB6: true,
-  });
 
   // Apply predefined threading preset with instant redraw
   const handleApplyPreset = (preset: 'full' | 'clear' | '5-5' | '1-1' | '1-2' | '1-3' | '2-2' | 'invert') => {
@@ -555,23 +695,15 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
         ctx.beginPath();
         ctx.arc(nx, startY - 20, 2.2, 0, Math.PI * 2);
         ctx.fill();
-
-        ctx.font = 'bold 8px monospace';
-        ctx.fillStyle = '#38bdf8';
-        ctx.fillText('DOLU', nx, startY - 7);
       } else {
-        // BOŞ: Distinct hollow ring with dashed border
-        ctx.strokeStyle = '#ef4444';
+        // BOŞ: Distinct hollow ring with dashed border colored by selected guide bar
+        ctx.strokeStyle = currentGbConfig?.color || '#ef4444';
         ctx.lineWidth = 1.8;
         ctx.setLineDash([2, 2]);
         ctx.beginPath();
         ctx.arc(nx, startY - 20, 5.5, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
-
-        ctx.font = 'bold 8px monospace';
-        ctx.fillStyle = '#ef4444';
-        ctx.fillText('BOŞ', nx, startY - 7);
       }
       ctx.restore();
 
@@ -781,41 +913,51 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 space-y-4">
+    <div ref={simWrapperRef} className="max-w-7xl mx-auto px-3 sm:px-6 py-4 space-y-4">
       {/* 1. Minimalist Threading & Guide Bar Toolbar */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3">
         {/* Top bar: Guide bar selectors & Quick Actions */}
         <div className="flex flex-wrap items-center justify-between gap-2.5">
-          {/* Active Guide Bar Selector */}
-          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-            <span className="text-xs text-slate-400 font-medium mr-1 shrink-0">Tarak:</span>
-            {activeBars.map((id) => (
-              <button
-                key={id}
-                onClick={() => {
-                  setEditingGbId(id);
-                  requestAnimationFrame(() => {
-                    drawTechnicalDiagram();
-                    drawFabricSimulation();
-                  });
-                }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 border shrink-0 ${
-                  editingGbId === id
-                    ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
-                    : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: currentGuideBars[id]?.color || '#3b82f6' }}
-                />
-                <span>{id}</span>
-              </button>
-            ))}
+          <div className="flex items-center space-x-2">
+            {/* Active Guide Bar Selector */}
+            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+              <span className="text-xs text-slate-400 font-medium mr-1 shrink-0">Tarak:</span>
+              {activeBars.map((id) => (
+                <button
+                  key={id}
+                  onClick={() => {
+                    setEditingGbId(id);
+                    requestAnimationFrame(() => {
+                      drawTechnicalDiagram();
+                      drawFabricSimulation();
+                    });
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 border shrink-0 ${
+                    editingGbId === id
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: currentGuideBars[id]?.color || '#3b82f6' }}
+                  />
+                  <span>{id}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Right Tools: Isolate button & bit notation input */}
+          {/* Right Tools: Fullscreen, Isolate button & bit notation input */}
           <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={toggleSimFullscreen}
+              className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition flex items-center space-x-1"
+              title="Tam Ekran Modu"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
+              <span>{isFullscreen ? 'Normal' : 'Tam Ekran'}</span>
+            </button>
             <button
               onClick={() => {
                 setIsolateActiveBar((prev) => !prev);
@@ -861,7 +1003,56 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
         </div>
 
         {/* Needle Button Strip (Mobile Touch Friendly) */}
-        <div className="pt-1">
+        <div className="pt-1 space-y-2">
+          {/* Needle Count Selector & Slider */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 text-xs">
+            <div className="flex items-center space-x-2">
+              <span className="text-slate-400 font-medium pl-1">Toplam İğne Sayısı:</span>
+              <span className="text-blue-400 font-mono font-bold">{needleCols}</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="range"
+                min="8"
+                max="128"
+                step="4"
+                value={needleCols}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  if (onChangeSafety) {
+                    onChangeSafety({
+                      ...pattern.safety,
+                      maxAllowedNeedleNumber: val,
+                    });
+                  }
+                }}
+                className="w-32 sm:w-40 accent-blue-500 cursor-pointer"
+              />
+              <div className="flex items-center space-x-1">
+                {[16, 32, 64, 128].map((nCnt) => (
+                  <button
+                    key={nCnt}
+                    onClick={() => {
+                      if (onChangeSafety) {
+                        onChangeSafety({
+                          ...pattern.safety,
+                          maxAllowedNeedleNumber: nCnt,
+                        });
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition ${
+                      needleCols === nCnt
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                    }`}
+                  >
+                    {nCnt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5 px-0.5">
             <span className="font-medium text-slate-300">{editingGbId} İğne Dizimi:</span>
             <div className="flex items-center space-x-1.5 font-mono text-[11px]">
@@ -1030,26 +1221,42 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
 
             <div className="flex items-center space-x-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
               <button
-                onClick={() => setZoom((prev) => Math.max(0.6, prev - 0.15))}
-                className="p-1 text-slate-400 hover:text-white rounded"
+                onClick={() => {
+                  setIsAutoZoom(false);
+                  setZoom((prev) => Math.max(0.4, Math.round((prev - 0.15) * 100) / 100));
+                }}
+                className="p-1 text-slate-400 hover:text-white rounded transition"
                 title="Uzaklaştır"
               >
                 <ZoomOut className="w-3.5 h-3.5" />
               </button>
-              <span className="text-[11px] font-mono px-1 text-slate-300">{Math.round(zoom * 100)}%</span>
+              <span className="text-[11px] font-mono px-1 text-slate-300 min-w-[36px] text-center">
+                {Math.round(zoom * 100)}%
+              </span>
               <button
-                onClick={() => setZoom((prev) => Math.min(2.0, prev + 0.15))}
-                className="p-1 text-slate-400 hover:text-white rounded"
+                onClick={() => {
+                  setIsAutoZoom(false);
+                  setZoom((prev) => Math.min(2.5, Math.round((prev + 0.15) * 100) / 100));
+                }}
+                className="p-1 text-slate-400 hover:text-white rounded transition"
                 title="Yakınlaştır"
               >
                 <ZoomIn className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={() => setZoom(1.0)}
-                className="p-1 text-slate-500 hover:text-slate-300 rounded"
-                title="Sıfırla"
+                onClick={() => {
+                  setIsAutoZoom(true);
+                  setTimeout(() => calculateSimFitZoom(), 20);
+                }}
+                className={`px-1.5 py-1 rounded text-[10px] font-bold transition flex items-center space-x-1 ${
+                  isAutoZoom
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                }`}
+                title="Ekrana Tam Sığdır (Otomatik)"
               >
-                <RotateCcw className="w-3 h-3" />
+                <Maximize2 className="w-3 h-3" />
+                <span>Sığdır</span>
               </button>
             </div>
           </div>
@@ -1117,7 +1324,13 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               </button>
             </div>
 
-            <div className="p-3 overflow-auto max-h-[750px] bg-[#070b14] flex justify-center">
+            <div
+              ref={techContainerRef}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              className="p-3 overflow-auto max-h-[750px] bg-[#070b14] flex justify-center touch-pan-x touch-pan-y"
+            >
               <div
                 style={{
                   transform: `scale(${zoom})`,
@@ -1158,7 +1371,13 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               </button>
             </div>
 
-            <div className="p-3 overflow-auto max-h-[750px] bg-[#05070d] flex justify-center">
+            <div
+              ref={fabricContainerRef}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              className="p-3 overflow-auto max-h-[750px] bg-[#05070d] flex justify-center touch-pan-x touch-pan-y"
+            >
               <div
                 style={{
                   transform: `scale(${zoom})`,

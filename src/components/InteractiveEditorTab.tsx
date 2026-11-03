@@ -14,8 +14,15 @@ import {
   ClipboardPaste,
   ShieldCheck,
   Check,
-  CopyPlus
+  CopyPlus,
+  Maximize2,
+  ShieldAlert,
+  Wand2
 } from 'lucide-react';
+import { VisualLoopToolbar, LoopToolMode } from './VisualLoopToolbar';
+import { QuickLoopPickerPopover } from './QuickLoopPickerPopover';
+import { LoopGlyph } from './LoopGlyph';
+import { analyzeCellLoop, autoFixInvalidRowCell, computeNeedleValueForLoop, LoopType } from '../utils/loopEngine';
 
 interface InteractiveEditorTabProps {
   pattern: PatternData;
@@ -27,6 +34,27 @@ interface InteractiveEditorTabProps {
   onOpenSafetySettings: () => void;
 }
 
+const EDITOR_SETTINGS_KEY = 'warpknitt_editor_settings';
+
+interface StoredEditorSettings {
+  activeGbId?: GuideBarId;
+  isLivePreviewOpen?: boolean;
+  showLiveFabricCard?: boolean;
+  selectedGbForQuick?: GuideBarId;
+  isAutoZoom?: boolean;
+  zoom?: number;
+}
+
+const getInitialEditorSettings = (): StoredEditorSettings => {
+  try {
+    const saved = localStorage.getItem(EDITOR_SETTINGS_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch (e) {
+    console.error('Failed to parse editor settings', e);
+  }
+  return {};
+};
+
 export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   pattern,
   onChangeRows,
@@ -36,11 +64,51 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   canRedo,
   onOpenSafetySettings,
 }) => {
-  const [activeGbId, setActiveGbId] = useState<GuideBarId>('GB3');
-  const [zoom, setZoom] = useState<number>(1);
-  const [isLivePreviewOpen, setIsLivePreviewOpen] = useState(true);
+  const savedEditorSettings = getInitialEditorSettings();
+
+  const [activeGbId, setActiveGbId] = useState<GuideBarId>(
+    savedEditorSettings.activeGbId || 'GB3'
+  );
+  const [activeToolMode, setActiveToolMode] = useState<LoopToolMode>('select');
+  const [popover, setPopover] = useState<{
+    isOpen: boolean;
+    position: { x: number; y: number } | null;
+    rowIndex: number;
+    gbId: GuideBarId;
+  } | null>(null);
+
+  const canvasCardRef = useRef<HTMLDivElement | null>(null);
+  const tableCardRef = useRef<HTMLDivElement | null>(null);
+  const [isCanvasFullscreen, setIsCanvasFullscreen] = useState(false);
+  const [isTableFullscreen, setIsTableFullscreen] = useState(false);
+
+  const toggleFullscreen = (ref: React.RefObject<HTMLDivElement | null>, isTable = false) => {
+    if (!ref.current) return;
+    if (!document.fullscreenElement) {
+      ref.current.requestFullscreen().catch((err) => console.error(err));
+      if (isTable) setIsTableFullscreen(true);
+      else setIsCanvasFullscreen(true);
+    } else {
+      document.exitFullscreen().catch((err) => console.error(err));
+      if (isTable) setIsTableFullscreen(false);
+      else setIsCanvasFullscreen(false);
+    }
+  };
+
+  const [isAutoZoom, setIsAutoZoom] = useState<boolean>(
+    savedEditorSettings.isAutoZoom ?? true
+  );
+  const [zoom, setZoom] = useState<number>(savedEditorSettings.zoom ?? 1);
+  const [isLivePreviewOpen, setIsLivePreviewOpen] = useState(
+    savedEditorSettings.isLivePreviewOpen ?? true
+  );
+  const [showLiveFabricCard, setShowLiveFabricCard] = useState(
+    savedEditorSettings.showLiveFabricCard ?? true
+  );
   const [quickInputText, setQuickInputText] = useState('');
-  const [selectedGbForQuick, setSelectedGbForQuick] = useState<GuideBarId>('GB3');
+  const [selectedGbForQuick, setSelectedGbForQuick] = useState<GuideBarId>(
+    savedEditorSettings.selectedGbForQuick || 'GB3'
+  );
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [copiedRow, setCopiedRow] = useState<PatternRow | null>(null);
 
@@ -64,9 +132,13 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     y: number;
   } | null>(null);
 
+  // Touch pinch-to-zoom ref
+  const touchDistRef = useRef<number | null>(null);
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const liveFabricCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const rows = pattern.rows;
   const needleCols = Math.max(16, Math.min(32, (pattern.safety?.maxAllowedNeedleNumber || 18) + 1));
@@ -85,6 +157,82 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   const showMsg = (msg: string) => {
     setActionMsg(msg);
     setTimeout(() => setActionMsg(null), 2000);
+  };
+
+  // Fit to screen height auto calculation (*Sığdır dikey olmalı)
+  const calculateEditorFitZoom = useCallback(() => {
+    if (!isAutoZoom) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const availHeight = container.clientHeight > 0 ? container.clientHeight - 20 : 500;
+    if (availHeight > 0 && canvasHeight > 0) {
+      const fit = availHeight / canvasHeight;
+      const clamped = Math.max(0.4, Math.min(1.5, Math.floor(fit * 100) / 100));
+      setZoom(clamped);
+    }
+  }, [isAutoZoom, canvasHeight]);
+
+  useEffect(() => {
+    calculateEditorFitZoom();
+  }, [calculateEditorFitZoom, needleCols]);
+
+  useEffect(() => {
+    if (!isAutoZoom) return;
+    const handleResize = () => calculateEditorFitZoom();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isAutoZoom, calculateEditorFitZoom]);
+
+  // Save settings to localStorage
+  useEffect(() => {
+    const settingsToSave: StoredEditorSettings = {
+      activeGbId,
+      isLivePreviewOpen,
+      showLiveFabricCard,
+      selectedGbForQuick,
+      isAutoZoom,
+      zoom,
+    };
+    localStorage.setItem(EDITOR_SETTINGS_KEY, JSON.stringify(settingsToSave));
+  }, [
+    activeGbId,
+    isLivePreviewOpen,
+    showLiveFabricCard,
+    selectedGbForQuick,
+    isAutoZoom,
+    zoom,
+  ]);
+
+  // Touch Pinch-to-Zoom logic
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      touchDistRef.current = dist;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && touchDistRef.current !== null) {
+      const newDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const delta = newDist - touchDistRef.current;
+      if (Math.abs(delta) > 8) {
+        const zoomFactor = delta > 0 ? 0.04 : -0.04;
+        setIsAutoZoom(false);
+        setZoom((prev) => Math.max(0.4, Math.min(2.2, prev + zoomFactor)));
+        touchDistRef.current = newDist;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchDistRef.current = null;
   };
 
   const getNeedleFromClientX = useCallback((clientX: number): number => {
@@ -237,6 +385,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
         ctx.stroke();
       });
     });
+
   }, [rows, activeBars, activeGbId, draggingNode, needleCols, coursePitch, needlePitch, startX, startY, hoverInfo]);
 
   // Preview Canvas
@@ -276,10 +425,94 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     });
   }, [rows, activeBars, draggingNode, isLivePreviewOpen, needleCols]);
 
+  // Live Fabric Simulation Canvas Draw (INSTANT REAL-TIME REFLECTION WHILE DRAGGING)
+  const drawLiveFabricCanvas = useCallback(() => {
+    if (!showLiveFabricCard) return;
+    const canvas = liveFabricCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Background
+    const bg = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    bg.addColorStop(0, '#0a0f1e');
+    bg.addColorStop(1, '#05070d');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const fabStartX = 40;
+    const fabStartY = 35;
+    const fabPitchX = Math.min(28, (canvas.width - 80) / needleCols);
+    const fabPitchY = Math.min(28, (canvas.height - 60) / Math.max(1, rows.length * 2));
+    const currentDrag = draggingRef.current || draggingNode;
+
+    // Draw active guide bar loops
+    activeBars.forEach((gbId) => {
+      const gb = pattern.guideBars[gbId];
+      if (!gb) return;
+
+      const threadingArr = gb.threadingArray || Array.from({ length: needleCols }, (_, i) => i % 2 === 0);
+
+      for (let g = 0; g < needleCols; g++) {
+        if (!threadingArr[g]) continue; // Boş ise iplik yok
+
+        for (let rep = 0; rep < 2; rep++) {
+          rows.forEach((row, rIdx) => {
+            const c = rep * rows.length + rIdx;
+            let shift = row[gbId] || 0;
+            if (currentDrag && currentDrag.courseIdx === rIdx && currentDrag.gbId === gbId) {
+              shift = currentDrag.currentNeedle;
+            }
+            const targetNeedle = g + shift;
+
+            if (targetNeedle >= 0 && targetNeedle < needleCols) {
+              const x = fabStartX + targetNeedle * fabPitchX;
+              const y = fabStartY + c * fabPitchY;
+
+              if (c > 0) {
+                const prevRow = rIdx === 0 ? rows[rows.length - 1] : rows[rIdx - 1];
+                let prevShift = prevRow[gbId] || 0;
+                if (currentDrag && currentDrag.courseIdx === (rIdx === 0 ? rows.length - 1 : rIdx - 1) && currentDrag.gbId === gbId) {
+                  prevShift = currentDrag.currentNeedle;
+                }
+                const prevNeedle = g + prevShift;
+                const prevX = fabStartX + prevNeedle * fabPitchX;
+                const prevY = fabStartY + (c - 1) * fabPitchY;
+
+                ctx.save();
+                ctx.strokeStyle = gb.color;
+                ctx.lineWidth = 3.5;
+                ctx.lineCap = 'round';
+                ctx.globalAlpha = 0.85;
+                ctx.beginPath();
+                ctx.moveTo(prevX, prevY);
+                ctx.quadraticCurveTo((prevX + x) / 2, (prevY + y) / 2, x, y);
+                ctx.stroke();
+                ctx.restore();
+              }
+
+              ctx.save();
+              ctx.fillStyle = gb.color;
+              ctx.shadowColor = gb.color;
+              ctx.shadowBlur = 6;
+              ctx.beginPath();
+              ctx.arc(x, y, 4, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.restore();
+            }
+          });
+        }
+      }
+    });
+  }, [rows, activeBars, draggingNode, showLiveFabricCard, needleCols, pattern.guideBars]);
+
   useEffect(() => {
     drawEditorCanvas();
     drawPreviewCanvas();
-  }, [drawEditorCanvas, drawPreviewCanvas]);
+    drawLiveFabricCanvas();
+  }, [drawEditorCanvas, drawPreviewCanvas, drawLiveFabricCanvas]);
 
   // Pointer event handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -434,6 +667,73 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     showMsg('Notasyon uygulandı.');
   };
 
+  // Loop Helper Handlers
+  const handleApplyLoopChange = (
+    rIdx: number,
+    gbId: GuideBarId,
+    newNeedleVal: number,
+    loopType: LoopType
+  ) => {
+    const updated = [...rows];
+    updated[rIdx] = {
+      ...updated[rIdx],
+      [gbId]: newNeedleVal,
+      loopTypes: {
+        ...(updated[rIdx].loopTypes || {}),
+        [gbId]: loopType,
+      },
+    };
+    onChangeRows(updated);
+    showMsg(`K${rIdx + 1} ${gbId} ilmeği [${loopType.toUpperCase()}] olarak güncellendi.`);
+  };
+
+  const handleAutoFixCell = (rIdx: number, gbId: GuideBarId) => {
+    const updated = [...rows];
+    const prevRow = rIdx > 0 ? updated[rIdx - 1] : null;
+    updated[rIdx] = autoFixInvalidRowCell(
+      updated[rIdx],
+      prevRow,
+      gbId,
+      pattern.safety,
+      needleCols
+    );
+    onChangeRows(updated);
+    showMsg(`K${rIdx + 1} ${gbId} ilmeği otomatik düzeltildi.`);
+  };
+
+  const handleCellClickWithTool = (rIdx: number, gbId: GuideBarId) => {
+    if (activeToolMode === 'select') return;
+
+    const prevRow = rIdx > 0 ? rows[rIdx - 1] : null;
+    const nextRow = rIdx < rows.length - 1 ? rows[rIdx + 1] : null;
+    const currentInfo = analyzeCellLoop(rows[rIdx], prevRow, nextRow, gbId, pattern.safety, needleCols);
+
+    let targetType: LoopType = 'open';
+    if (activeToolMode === 'cycle_pen') {
+      const cycleMap: Record<LoopType, LoopType> = {
+        open: 'closed',
+        closed: 'miss',
+        miss: 'tuck',
+        tuck: 'open',
+      };
+      targetType = cycleMap[currentInfo.type] || 'open';
+    } else if (activeToolMode === 'open_stamp') targetType = 'open';
+    else if (activeToolMode === 'closed_stamp') targetType = 'closed';
+    else if (activeToolMode === 'miss_stamp') targetType = 'miss';
+    else if (activeToolMode === 'tuck_stamp') targetType = 'tuck';
+
+    const prevVal = prevRow ? (prevRow[gbId] ?? (rows[rIdx][gbId] ?? 0)) : (rows[rIdx][gbId] ?? 0);
+    const newNeedle = computeNeedleValueForLoop(
+      prevVal,
+      targetType,
+      currentInfo.underlapSpan || 1,
+      needleCols,
+      pattern.safety?.maxAllowedNeedleNumber || 4
+    );
+
+    handleApplyLoopChange(rIdx, gbId, newNeedle, targetType);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2.5 space-y-3">
       {/* Toast Notification */}
@@ -508,7 +808,15 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       </div>
 
       {/* Visual Point Paper Drag Canvas */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden relative">
+      <div
+        ref={canvasCardRef}
+        onPointerLeave={() => {
+          setHoverInfo(null);
+          draggingRef.current = null;
+          setDraggingNode(null);
+        }}
+        className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden relative"
+      >
         <div className="bg-slate-950 px-3 py-2 border-b border-slate-800 flex items-center justify-between gap-2 overflow-x-auto scrollbar-none">
           <div className="flex items-center space-x-1.5 shrink-0">
             <Sliders className="w-4 h-4 text-blue-400 shrink-0" />
@@ -535,20 +843,68 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
             })}
           </div>
 
-          {/* Zoom */}
-          <div className="flex items-center space-x-1 bg-slate-950 px-1.5 py-0.5 rounded-lg border border-slate-800 shrink-0">
-            <button onClick={() => setZoom((z) => Math.max(0.6, z - 0.15))} className="text-slate-400 hover:text-white p-0.5">
-              <ZoomOut className="w-3 h-3" />
+          {/* Right Tools: Fullscreen & Touch Zoom Controls */}
+          <div className="flex items-center space-x-1.5 shrink-0">
+            <button
+              onClick={() => toggleFullscreen(canvasCardRef, false)}
+              className="px-2 py-0.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded text-[10px] font-medium transition flex items-center space-x-1"
+              title="Tam Ekran"
+            >
+              <Maximize2 className="w-3 h-3 text-blue-400" />
+              <span>{isCanvasFullscreen ? 'Normal' : 'Tam Ekran'}</span>
             </button>
-            <span className="text-[10px] font-mono text-slate-300 min-w-[28px] text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom((z) => Math.min(2.0, z + 0.15))} className="text-slate-400 hover:text-white p-0.5">
-              <ZoomIn className="w-3 h-3" />
-            </button>
+
+            <div className="flex items-center space-x-1 bg-slate-950 px-1.5 py-0.5 rounded-lg border border-slate-800">
+              <button
+                onClick={() => {
+                  setIsAutoZoom(false);
+                  setZoom((z) => Math.max(0.4, Math.round((z - 0.15) * 100) / 100));
+                }}
+                className="text-slate-400 hover:text-white p-1 active:scale-90"
+                title="Uzaklaştır"
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-[10px] font-mono text-slate-300 min-w-[32px] text-center">
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                onClick={() => {
+                  setIsAutoZoom(false);
+                  setZoom((z) => Math.min(2.2, Math.round((z + 0.15) * 100) / 100));
+                }}
+                className="text-slate-400 hover:text-white p-1 active:scale-90"
+                title="Yakınlaştır"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => {
+                  setIsAutoZoom(true);
+                  setTimeout(() => calculateEditorFitZoom(), 20);
+                }}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition flex items-center space-x-1 ${
+                  isAutoZoom
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                }`}
+                title="Ekrana Tam Sığdır (*Dikey)"
+              >
+                <Maximize2 className="w-3 h-3" />
+                <span>Sığdır</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Canvas Area */}
-        <div ref={containerRef} className="p-2 overflow-auto max-h-[420px] bg-[#070b14] flex justify-center cursor-crosshair select-none">
+        {/* Canvas Area with Touch Pinch-to-Zoom */}
+        <div
+          ref={containerRef}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          className="p-2 overflow-auto max-h-[420px] bg-[#070b14] flex justify-center cursor-crosshair select-none touch-pan-x touch-pan-y"
+        >
           <div
             style={{
               transform: `scale(${zoom})`,
@@ -569,31 +925,119 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
           </div>
         </div>
 
-        {/* Floating Mini Preview Widget */}
+        {/* Floating Tooltip HUD on Drag & Touch (Smaller, further away, single) */}
+        {(draggingNode || hoverInfo) && hoverInfo?.x && hoverInfo?.y && (
+          <div
+            style={{
+              position: 'fixed',
+              left: `${hoverInfo.x}px`,
+              top: `${hoverInfo.y - 78}px`,
+              transform: 'translateX(-50%)',
+              pointerEvents: 'none',
+            }}
+            className="z-50 bg-slate-950/90 backdrop-blur-md border border-blue-500/80 shadow-2xl rounded-lg px-2 py-0.5 text-slate-100 flex items-center space-x-1.5 animate-in fade-in zoom-in-95 duration-75 select-none"
+          >
+            <div className="flex items-center space-x-1 shrink-0">
+              <span
+                className="w-2 h-2 rounded-full animate-ping shrink-0"
+                style={{ backgroundColor: pattern.guideBars[activeGbId]?.color || '#38bdf8' }}
+              />
+              <span className="text-[10px] font-bold text-white font-mono">
+                {activeGbId}
+              </span>
+            </div>
+
+            <div className="h-3 w-px bg-slate-800 shrink-0" />
+
+            <div className="text-[10px] font-mono font-bold flex items-center space-x-1.5 shrink-0">
+              <span className="text-blue-400">
+                Adım {rows[draggingNode ? draggingNode.courseIdx : hoverInfo.courseIdx]?.stepIndex ?? ((draggingNode ? draggingNode.courseIdx : hoverInfo.courseIdx) + 1)}
+              </span>
+              <span className="text-slate-600">•</span>
+              <span className="text-emerald-400">
+                İğne İ{(draggingNode ? draggingNode.currentNeedle : hoverInfo.needle)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Floating Mini Preview Widget (Borderless, slightly larger) */}
         {isLivePreviewOpen && (
-          <div className="hidden md:block absolute bottom-2 right-2 w-44 bg-slate-900/95 backdrop-blur border border-slate-700/80 rounded-xl shadow-xl p-1.5 space-y-1">
-            <div className="flex items-center justify-between text-[10px] font-bold text-white border-b border-slate-800 pb-0.5">
+          <div className="hidden md:block absolute bottom-2 right-2 w-52 bg-slate-950/95 backdrop-blur shadow-2xl rounded-xl p-1.5 space-y-1">
+            <div className="flex items-center justify-between text-[10px] font-bold text-white border-b border-slate-800/80 pb-0.5">
               <span className="flex items-center space-x-1">
                 <Sparkles className="w-3 h-3 text-blue-400" />
                 <span>Önizleme</span>
               </span>
               <button onClick={() => setIsLivePreviewOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
-            <canvas ref={previewCanvasRef} width={160} height={90} className="rounded-lg border border-slate-800 bg-[#0a0f1e]" />
+            <canvas ref={previewCanvasRef} width={205} height={120} className="rounded-lg bg-[#0a0f1e]" />
           </div>
         )}
       </div>
 
-      {/* Pattern Code Table & Chain Grid - DISTINCTLY COLOR CODED COLUMNS */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2.5 sm:p-3 space-y-2.5 shadow-lg">
+      {/* INSTANT LIVE FABRIC SIMULATION CARD */}
+      {showLiveFabricCard && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2.5 space-y-2 shadow-lg">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+            <div className="flex items-center space-x-1.5">
+              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 animate-pulse" />
+              <span className="text-xs font-bold text-white">Anlık Canlı Kumaş Simülasyonu</span>
+            </div>
+            <button
+              onClick={() => setShowLiveFabricCard(false)}
+              className="text-[10px] text-slate-500 hover:text-slate-300"
+            >
+              Gizle
+            </button>
+          </div>
+
+          <div className="p-2 overflow-auto bg-[#05070d] rounded-xl flex justify-center border border-slate-800">
+            <canvas
+              ref={liveFabricCanvasRef}
+              width={canvasWidth - 80}
+              height={220}
+              className="rounded-lg bg-[#0a0f1e]"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* VISUAL LOOP TOOLBAR (İlmek Çizici & Sihirbazı Modu Toolbar) */}
+      <VisualLoopToolbar
+        activeToolMode={activeToolMode}
+        onSelectToolMode={setActiveToolMode}
+        activeGbId={activeGbId}
+        activeBars={activeBars}
+        rows={rows}
+        safety={pattern.safety}
+        needleCols={needleCols}
+        onApplyMassTransform={(newRows, msg) => {
+          onChangeRows(newRows);
+          showMsg(msg);
+        }}
+      />
+
+      {/* Pattern Code Table & Chain Grid - CELL-LEVEL LOOP GLYPHS & INLINE EDITING */}
+      <div ref={tableCardRef} className="bg-slate-900 border border-slate-800 rounded-2xl p-2.5 sm:p-3 space-y-2.5 shadow-lg">
         {/* Table Controls Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
           <div className="flex items-center space-x-2">
             <TableIcon className="w-4 h-4 text-blue-400 shrink-0" />
-            <h3 className="text-xs sm:text-sm font-bold text-white">Desen Kod Tablosu ({rows.length} Kurs)</h3>
+            <h3 className="text-xs sm:text-sm font-bold text-white">
+              Desen Kod Tablosu & İlmek Yapısı ({rows.length} Kurs)
+            </h3>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => toggleFullscreen(tableCardRef, true)}
+              className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition flex items-center space-x-1"
+              title="Tam Ekran"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
+              <span>{isTableFullscreen ? 'Normal' : 'Tam Ekran'}</span>
+            </button>
             <button
               onClick={addRow}
               className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow"
@@ -650,8 +1094,8 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
           </button>
         </div>
 
-        {/* COLOR CODED TABLE VIEWPORT */}
-        <div className="overflow-x-auto max-h-[380px] rounded-xl border border-slate-800 bg-[#070b14] scrollbar-thin">
+        {/* COLOR CODED TABLE VIEWPORT WITH CELL-LEVEL GLYPHS */}
+        <div className="overflow-x-auto max-h-[420px] rounded-xl border border-slate-800 bg-[#070b14] scrollbar-thin">
           <table className="w-full text-left text-xs font-mono border-collapse">
             <thead className="bg-slate-950 sticky top-0 z-10 border-b border-slate-800">
               <tr>
@@ -693,25 +1137,77 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                     const gbColor = pattern.guideBars[gbId]?.color || '#3b82f6';
                     const softBg = getSoftColorBg(gbColor, 0.05);
                     const val = row[gbId] ?? 0;
+                    const prevRow = rIdx > 0 ? rows[rIdx - 1] : null;
+                    const nextRow = rIdx < rows.length - 1 ? rows[rIdx + 1] : null;
+
+                    const loopInfo = analyzeCellLoop(row, prevRow, nextRow, gbId, pattern.safety, needleCols);
+
                     return (
                       <td
                         key={gbId}
-                        className="py-1.5 px-1.5 text-center border-r border-slate-800/50"
-                        style={{ backgroundColor: softBg }}
+                        className={`py-1.5 px-1 text-center border-r border-slate-800/50 relative group transition-all cursor-pointer ${
+                          !loopInfo.isValid ? 'bg-rose-950/40 ring-2 ring-rose-500/80 rounded-lg' : ''
+                        }`}
+                        style={{ backgroundColor: loopInfo.isValid ? softBg : undefined }}
+                        onClick={() => handleCellClickWithTool(rIdx, gbId)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setPopover({
+                            isOpen: true,
+                            position: { x: e.clientX, y: e.clientY },
+                            rowIndex: rIdx,
+                            gbId,
+                          });
+                        }}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          setPopover({
+                            isOpen: true,
+                            position: { x: e.clientX, y: e.clientY },
+                            rowIndex: rIdx,
+                            gbId,
+                          });
+                        }}
+                        title={
+                          !loopInfo.isValid
+                            ? loopInfo.invalidReason || 'Geçersiz İlmek Hareketi'
+                            : `Sağ Tık / Çift Dokun: İlmek menüsü (${loopInfo.label})`
+                        }
                       >
-                        <input
-                          type="number"
-                          min={0}
-                          max={needleCols - 1}
-                          value={val}
-                          onChange={(e) => handleCellChange(rIdx, gbId, parseInt(e.target.value, 10))}
-                          className="w-13 sm:w-16 h-8 bg-slate-950 rounded-lg text-center font-bold font-mono focus:outline-none transition shadow-inner"
-                          style={{
-                            color: gbColor,
-                            borderColor: getSoftColorBg(gbColor, 0.5),
-                            borderWidth: '1.5px',
-                          }}
-                        />
+                        <div className="flex items-center justify-center space-x-1">
+                          <input
+                            type="number"
+                            min={0}
+                            max={needleCols - 1}
+                            value={val}
+                            onChange={(e) => handleCellChange(rIdx, gbId, parseInt(e.target.value, 10))}
+                            className={`w-11 sm:w-13 h-7 bg-slate-950 rounded-lg text-center font-bold font-mono focus:outline-none transition shadow-inner text-xs ${
+                              !loopInfo.isValid ? 'border-2 border-rose-500 text-rose-300' : ''
+                            }`}
+                            style={{
+                              color: loopInfo.isValid ? gbColor : undefined,
+                              borderColor: loopInfo.isValid ? getSoftColorBg(gbColor, 0.5) : undefined,
+                              borderWidth: '1.5px',
+                            }}
+                          />
+
+                          {/* Mini İlmek Simgesi (Glyph) & Badgesi */}
+                          <LoopGlyph type={loopInfo.type} direction={loopInfo.direction} size="sm" />
+
+                          {/* Warning Badge & Auto-Fix Trigger if Invalid */}
+                          {!loopInfo.isValid && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAutoFixCell(rIdx, gbId);
+                              }}
+                              className="p-1 bg-rose-600 hover:bg-rose-500 text-white rounded-md text-[9px] font-bold shrink-0 shadow animate-pulse"
+                              title="Tıkla: En Yakın Geçerli İlmeğe Otomatik Düzelt"
+                            >
+                              Fix
+                            </button>
+                          )}
+                        </div>
                       </td>
                     );
                   })}
@@ -765,6 +1261,24 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* QUICK LOOP PICKER POPOVER */}
+      {popover?.isOpen && rows[popover.rowIndex] && (
+        <QuickLoopPickerPopover
+          isOpen={popover.isOpen}
+          onClose={() => setPopover(null)}
+          position={popover.position}
+          rowIndex={popover.rowIndex}
+          row={rows[popover.rowIndex]}
+          prevRow={popover.rowIndex > 0 ? rows[popover.rowIndex - 1] : null}
+          nextRow={popover.rowIndex < rows.length - 1 ? rows[popover.rowIndex + 1] : null}
+          gbId={popover.gbId}
+          safety={pattern.safety}
+          needleCols={needleCols}
+          onApplyLoopChange={handleApplyLoopChange}
+          onAutoFix={handleAutoFixCell}
+        />
+      )}
     </div>
   );
 };
