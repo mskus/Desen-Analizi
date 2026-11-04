@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { PatternData, PatternRow, GuideBarId } from '../types';
+import { PatternData, PatternRow, GuideBarId, ActiveTab } from '../types';
 import {
   Plus,
   Trash2,
@@ -17,12 +17,14 @@ import {
   CopyPlus,
   Maximize2,
   ShieldAlert,
-  Wand2
+  Wand2,
+  Dices,
+  GripVertical
 } from 'lucide-react';
 import { VisualLoopToolbar, LoopToolMode } from './VisualLoopToolbar';
 import { QuickLoopPickerPopover } from './QuickLoopPickerPopover';
 import { LoopGlyph } from './LoopGlyph';
-import { analyzeCellLoop, autoFixInvalidRowCell, computeNeedleValueForLoop, LoopType } from '../utils/loopEngine';
+import { analyzeCellLoop, autoFixInvalidRowCell, computeNeedleValueForLoop, LoopType, generateRandomPatternRows } from '../utils/loopEngine';
 
 interface InteractiveEditorTabProps {
   pattern: PatternData;
@@ -32,6 +34,10 @@ interface InteractiveEditorTabProps {
   canUndo: boolean;
   canRedo: boolean;
   onOpenSafetySettings: () => void;
+  activeTab?: ActiveTab;
+  setActiveTab?: (tab: ActiveTab) => void;
+  onToggleFullscreen?: () => void;
+  isFullscreen?: boolean;
 }
 
 const EDITOR_SETTINGS_KEY = 'warpknitt_editor_settings';
@@ -63,6 +69,10 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   canUndo,
   canRedo,
   onOpenSafetySettings,
+  activeTab,
+  setActiveTab,
+  onToggleFullscreen,
+  isFullscreen,
 }) => {
   const savedEditorSettings = getInitialEditorSettings();
 
@@ -83,6 +93,10 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   const [isTableFullscreen, setIsTableFullscreen] = useState(false);
 
   const toggleFullscreen = (ref: React.RefObject<HTMLDivElement | null>, isTable = false) => {
+    if (onToggleFullscreen) {
+      onToggleFullscreen();
+      return;
+    }
     if (!ref.current) return;
     if (!document.fullscreenElement) {
       ref.current.requestFullscreen().catch((err) => console.error(err));
@@ -111,6 +125,96 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   );
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [copiedRow, setCopiedRow] = useState<PatternRow | null>(null);
+
+  // Drag & drop course reordering state
+  const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
+
+  // Floating Movable & Resizable Windows-Style Preview Window state
+  const [previewWindow, setPreviewWindow] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    isDragging: boolean;
+    isResizing: boolean;
+    dragOffset: { x: number; y: number };
+    resizeStart: { w: number; h: number; x: number; y: number };
+  }>(() => ({
+    x: typeof window !== 'undefined' ? Math.max(20, window.innerWidth - 270) : 20,
+    y: typeof window !== 'undefined' ? Math.max(20, window.innerHeight - 240) : 20,
+    width: 240,
+    height: 150,
+    isDragging: false,
+    isResizing: false,
+    dragOffset: { x: 0, y: 0 },
+    resizeStart: { w: 240, h: 150, x: 0, y: 0 },
+  }));
+
+  const handleStartDragPreview = (e: React.PointerEvent) => {
+    e.preventDefault();
+    setPreviewWindow((prev) => ({
+      ...prev,
+      isDragging: true,
+      dragOffset: {
+        x: e.clientX - prev.x,
+        y: e.clientY - prev.y,
+      },
+    }));
+  };
+
+  const handleStartResizePreview = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setPreviewWindow((prev) => ({
+      ...prev,
+      isResizing: true,
+      resizeStart: {
+        w: prev.width,
+        h: prev.height,
+        x: e.clientX,
+        y: e.clientY,
+      },
+    }));
+  };
+
+  useEffect(() => {
+    const handlePointerMove = (e: PointerEvent) => {
+      if (previewWindow.isDragging) {
+        setPreviewWindow((prev) => ({
+          ...prev,
+          x: Math.max(10, Math.min(window.innerWidth - prev.width - 10, e.clientX - prev.dragOffset.x)),
+          y: Math.max(10, Math.min(window.innerHeight - prev.height - 10, e.clientY - prev.dragOffset.y)),
+        }));
+      } else if (previewWindow.isResizing) {
+        const dw = e.clientX - previewWindow.resizeStart.x;
+        const dh = e.clientY - previewWindow.resizeStart.y;
+        setPreviewWindow((prev) => ({
+          ...prev,
+          width: Math.max(160, Math.min(600, prev.resizeStart.w + dw)),
+          height: Math.max(110, Math.min(450, prev.resizeStart.h + dh)),
+        }));
+      }
+    };
+
+    const handlePointerUp = () => {
+      if (previewWindow.isDragging || previewWindow.isResizing) {
+        setPreviewWindow((prev) => ({
+          ...prev,
+          isDragging: false,
+          isResizing: false,
+        }));
+      }
+    };
+
+    if (previewWindow.isDragging || previewWindow.isResizing) {
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+    }
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [previewWindow.isDragging, previewWindow.isResizing, previewWindow.dragOffset, previewWindow.resizeStart]);
 
   // Dragging state
   const draggingRef = useRef<{
@@ -320,17 +424,18 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       }
     }
 
-    // 3. Trick Points
+    // 3. Trick Points - Batched for 60 FPS
+    ctx.fillStyle = '#1e293b';
+    ctx.beginPath();
     for (let c = 0; c < rows.length; c++) {
       const cy = startY + c * coursePitch + coursePitch / 2;
       for (let n = 0; n < needleCols; n++) {
         const nx = startX + n * needlePitch;
-        ctx.fillStyle = '#1e293b';
-        ctx.beginPath();
+        ctx.moveTo(nx + 2.5, cy);
         ctx.arc(nx, cy, 2.5, 0, Math.PI * 2);
-        ctx.fill();
       }
     }
+    ctx.fill();
 
     // 4. Guide Bar Paths
     activeBars.forEach((gbId) => {
@@ -481,38 +586,60 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                 const prevX = fabStartX + prevNeedle * fabPitchX;
                 const prevY = fabStartY + (c - 1) * fabPitchY;
 
-                ctx.save();
-                ctx.strokeStyle = gb.color;
-                ctx.lineWidth = 3.5;
-                ctx.lineCap = 'round';
-                ctx.globalAlpha = 0.85;
-                ctx.beginPath();
                 ctx.moveTo(prevX, prevY);
                 ctx.quadraticCurveTo((prevX + x) / 2, (prevY + y) / 2, x, y);
-                ctx.stroke();
-                ctx.restore();
               }
-
-              ctx.save();
-              ctx.fillStyle = gb.color;
-              ctx.shadowColor = gb.color;
-              ctx.shadowBlur = 6;
-              ctx.beginPath();
-              ctx.arc(x, y, 4, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.restore();
             }
           });
         }
       }
+      ctx.stroke();
+      ctx.restore();
+
+      // Batch draw loop nodes
+      ctx.save();
+      ctx.fillStyle = gb.color;
+      ctx.shadowColor = gb.color;
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      for (let g = 0; g < needleCols; g++) {
+        if (!threadingArr[g]) continue;
+        for (let rep = 0; rep < 2; rep++) {
+          rows.forEach((row, rIdx) => {
+            const c = rep * rows.length + rIdx;
+            let shift = row[gbId] || 0;
+            if (currentDrag && currentDrag.courseIdx === rIdx && currentDrag.gbId === gbId) {
+              shift = currentDrag.currentNeedle;
+            }
+            const targetNeedle = g + shift;
+            if (targetNeedle >= 0 && targetNeedle < needleCols) {
+              const x = fabStartX + targetNeedle * fabPitchX;
+              const y = fabStartY + c * fabPitchY;
+              ctx.moveTo(x + 4, y);
+              ctx.arc(x, y, 4, 0, Math.PI * 2);
+            }
+          });
+        }
+      }
+      ctx.fill();
+      ctx.restore();
     });
   }, [rows, activeBars, draggingNode, showLiveFabricCard, needleCols, pattern.guideBars]);
 
   useEffect(() => {
-    drawEditorCanvas();
-    drawPreviewCanvas();
-    drawLiveFabricCanvas();
-  }, [drawEditorCanvas, drawPreviewCanvas, drawLiveFabricCanvas]);
+    let animId = requestAnimationFrame(() => {
+      drawEditorCanvas();
+    });
+    return () => cancelAnimationFrame(animId);
+  }, [drawEditorCanvas]);
+
+  useEffect(() => {
+    let animId = requestAnimationFrame(() => {
+      drawPreviewCanvas();
+      drawLiveFabricCanvas();
+    });
+    return () => cancelAnimationFrame(animId);
+  }, [drawPreviewCanvas, drawLiveFabricCanvas]);
 
   // Pointer event handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -535,7 +662,13 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const courseIdx = getCourseFromClientY(e.clientY);
     const needle = getNeedleFromClientX(e.clientX);
-    setHoverInfo({ courseIdx, needle, x: e.clientX, y: e.clientY });
+
+    setHoverInfo((prev) => {
+      if (prev && prev.courseIdx === courseIdx && prev.needle === needle && Math.abs(prev.x - e.clientX) < 6 && Math.abs(prev.y - e.clientY) < 6) {
+        return prev;
+      }
+      return { courseIdx, needle, x: e.clientX, y: e.clientY };
+    });
 
     if (!draggingRef.current) return;
     if (needle !== draggingRef.current.currentNeedle) {
@@ -579,7 +712,33 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       GB6: lastRow.GB6,
     };
     onChangeRows([...rows, newRow]);
-    showMsg('Yeni satır eklendi.');
+  };
+
+  const insertRowAfter = (rIdx: number) => {
+    const prevR = rows[rIdx] || rows[0];
+    const newRow: PatternRow = {
+      id: 'ins-' + Date.now() + '-' + Math.random().toString(36).substring(2, 5),
+      courseIndex: rIdx + 2,
+      GB1: prevR.GB1,
+      GB2: prevR.GB2,
+      GB3: prevR.GB3,
+      GB4: prevR.GB4,
+      GB5: prevR.GB5,
+      GB6: prevR.GB6,
+    };
+    const updated = [...rows];
+    updated.splice(rIdx + 1, 0, newRow);
+    const reindexed = updated.map((r, i) => ({ ...r, courseIndex: i + 1, stepIndex: i + 1 }));
+    onChangeRows(reindexed);
+  };
+
+  const reorderRows = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    const updated = [...rows];
+    const [moved] = updated.splice(fromIndex, 1);
+    updated.splice(toIndex, 0, moved);
+    const reindexed = updated.map((r, i) => ({ ...r, courseIndex: i + 1, stepIndex: i + 1 }));
+    onChangeRows(reindexed);
   };
 
   const deleteRow = (index: number) => {
@@ -629,6 +788,16 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     const firstRow = rows[0] || { id: 'r1', courseIndex: 1, GB1: 0, GB2: 0, GB3: 1, GB4: 0, GB5: 2, GB6: 0 };
     onChangeRows([{ ...firstRow, courseIndex: 1 }]);
     showMsg('Tek satıra sıfırlandı.');
+  };
+
+  const handleGenerateRandomPattern = () => {
+    const newRandomRows = generateRandomPatternRows(
+      rows.length || 12,
+      activeBars,
+      pattern.safety,
+      needleCols
+    );
+    onChangeRows(newRandomRows);
   };
 
   const handleCellChange = (rowIndex: number, gb: GuideBarId, val: number) => {
@@ -903,7 +1072,9 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          className="p-2 overflow-auto max-h-[420px] bg-[#070b14] flex justify-center cursor-crosshair select-none touch-pan-x touch-pan-y"
+          className={`p-2 overflow-auto bg-[#070b14] flex justify-center cursor-crosshair select-none touch-pan-x touch-pan-y ${
+            (isFullscreen || isCanvasFullscreen) ? 'h-[calc(100vh-135px)] max-h-none' : 'max-h-[420px]'
+          }`}
         >
           <div
             style={{
@@ -961,17 +1132,59 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
           </div>
         )}
 
-        {/* Floating Mini Preview Widget (Borderless, slightly larger) */}
+        {/* Movable & Resizable Windows-Style Preview Window */}
         {isLivePreviewOpen && (
-          <div className="hidden md:block absolute bottom-2 right-2 w-52 bg-slate-950/95 backdrop-blur shadow-2xl rounded-xl p-1.5 space-y-1">
-            <div className="flex items-center justify-between text-[10px] font-bold text-white border-b border-slate-800/80 pb-0.5">
+          <div
+            style={{
+              position: 'fixed',
+              left: `${previewWindow.x}px`,
+              top: `${previewWindow.y}px`,
+              width: `${previewWindow.width}px`,
+              height: `${previewWindow.height}px`,
+              zIndex: 60,
+            }}
+            className="bg-slate-950/95 backdrop-blur-md border border-slate-700/80 shadow-2xl rounded-xl p-2 flex flex-col justify-between overflow-hidden group select-none"
+          >
+            {/* Window Header / Drag Handle */}
+            <div
+              onPointerDown={handleStartDragPreview}
+              className="flex items-center justify-between text-[10px] font-bold text-white border-b border-slate-800/80 pb-1 cursor-move select-none shrink-0"
+              title="Sürükle: Ekran Üzerinde Taşı"
+            >
               <span className="flex items-center space-x-1">
-                <Sparkles className="w-3 h-3 text-blue-400" />
-                <span>Önizleme</span>
+                <GripVertical className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <Sparkles className="w-3 h-3 text-blue-400 shrink-0" />
+                <span>Pencere Önizleme</span>
               </span>
-              <button onClick={() => setIsLivePreviewOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+              <button
+                onClick={() => setIsLivePreviewOpen(false)}
+                className="text-slate-400 hover:text-white p-0.5 rounded transition"
+                title="Kapat"
+              >
+                ✕
+              </button>
             </div>
-            <canvas ref={previewCanvasRef} width={205} height={120} className="rounded-lg bg-[#0a0f1e]" />
+
+            {/* Window Canvas Body */}
+            <div className="flex-1 w-full overflow-hidden flex items-center justify-center my-1 bg-[#0a0f1e] rounded-lg border border-slate-800/80">
+              <canvas
+                ref={previewCanvasRef}
+                width={previewWindow.width - 16}
+                height={previewWindow.height - 32}
+                className="rounded-lg"
+              />
+            </div>
+
+            {/* Window Resize Handle */}
+            <div
+              onPointerDown={handleStartResizePreview}
+              className="absolute bottom-0.5 right-0.5 w-4 h-4 cursor-se-resize flex items-center justify-center text-slate-500 hover:text-blue-400 z-10"
+              title="Boyutlandır (Sürükle)"
+            >
+              <svg className="w-3 h-3 opacity-60 hover:opacity-100" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M14 14H12V12H14V14ZM14 10H12V8H14V10ZM10 14H8V12H10V14Z" />
+              </svg>
+            </div>
           </div>
         )}
       </div>
@@ -1037,6 +1250,14 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
             >
               <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
               <span>{isTableFullscreen ? 'Normal' : 'Tam Ekran'}</span>
+            </button>
+            <button
+              onClick={handleGenerateRandomPattern}
+              className="px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-md active:scale-95"
+              title="Rastgele Desen Çiz (Otomatik Geçerli Çözgülü Örme Hareketi)"
+            >
+              <Dices className="w-3.5 h-3.5" />
+              <span>Rastgele Desen</span>
             </button>
             <button
               onClick={addRow}
@@ -1129,9 +1350,35 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {rows.map((row, rIdx) => (
-                <tr key={row.id || rIdx} className="hover:bg-slate-800/30 transition">
-                  <td className="py-1.5 px-2 text-center font-bold text-slate-300 border-r border-slate-800/60 bg-slate-950/40">
-                    K{row.courseIndex}
+                <tr
+                  key={row.id || rIdx}
+                  draggable
+                  onDragStart={(e) => {
+                    setDraggedRowIndex(rIdx);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (draggedRowIndex === null) return;
+                    reorderRows(draggedRowIndex, rIdx);
+                    setDraggedRowIndex(null);
+                  }}
+                  className={`hover:bg-slate-800/40 transition select-none ${
+                    draggedRowIndex === rIdx ? 'opacity-40 bg-blue-950/60' : ''
+                  }`}
+                >
+                  <td
+                    className="py-1.5 px-1.5 text-center font-bold text-slate-300 border-r border-slate-800/60 bg-slate-950/40 cursor-grab active:cursor-grabbing hover:bg-slate-900 transition"
+                    title="Kurs Sırasını Değiştirmek İçin Sürükleyin"
+                  >
+                    <div className="flex items-center justify-center space-x-1">
+                      <GripVertical className="w-3.5 h-3.5 text-slate-500 hover:text-blue-400 shrink-0" />
+                      <span>K{row.courseIndex}</span>
+                    </div>
                   </td>
                   {activeBars.map((gbId) => {
                     const gbColor = pattern.guideBars[gbId]?.color || '#3b82f6';
@@ -1213,6 +1460,14 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                   })}
                   <td className="py-1.5 px-2 text-right">
                     <div className="flex items-center justify-end space-x-1">
+                      <button
+                        onClick={() => insertRowAfter(rIdx)}
+                        className="p-1 text-emerald-400 hover:bg-emerald-950/60 hover:text-emerald-300 rounded transition flex items-center space-x-0.5"
+                        title="Altına Araya Satır Ekle"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="hidden xl:inline text-[9px] font-bold">Araya</span>
+                      </button>
                       <button
                         onClick={() => copyRow(row)}
                         className="p-1 text-slate-400 hover:text-blue-400 rounded transition"

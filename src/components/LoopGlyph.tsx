@@ -8,7 +8,7 @@ interface LoopGlyphProps {
   size?: 'sm' | 'md' | 'lg';
 }
 
-export const LoopGlyph: React.FC<LoopGlyphProps> = ({
+export const LoopGlyph: React.FC<LoopGlyphProps> = React.memo(({
   type,
   direction = 'straight',
   showBadgeText = true,
@@ -101,4 +101,4 @@ export const LoopGlyph: React.FC<LoopGlyphProps> = ({
       )}
     </div>
   );
-};
+});

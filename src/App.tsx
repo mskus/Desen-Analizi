@@ -161,10 +161,33 @@ export default function App() {
     }));
   };
 
+  const appRef = React.useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleAppFullscreen = () => {
+    if (!document.fullscreenElement) {
+      if (appRef.current) {
+        appRef.current.requestFullscreen().catch((err) => console.error(err));
+      } else {
+        document.documentElement.requestFullscreen().catch((err) => console.error(err));
+      }
+    } else {
+      document.exitFullscreen().catch((err) => console.error(err));
+    }
+  };
+
   const allPatterns = [...customPatterns, ...patternLibrary];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+    <div ref={appRef} className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       {/* Top Navbar */}
       <Navbar
         activeTab={activeTab}
@@ -174,6 +197,8 @@ export default function App() {
         onOpenImport={() => setModalMode('import')}
         onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
         onOpenSaveToLibrary={() => setIsSaveModalOpen(true)}
+        onToggleFullscreen={toggleAppFullscreen}
+        isFullscreen={isFullscreen}
       />
 
       {/* Main Content Area */}
@@ -197,6 +222,10 @@ export default function App() {
             canUndo={historyIndex > 0}
             canRedo={historyIndex < history.length - 1}
             onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            onToggleFullscreen={toggleAppFullscreen}
+            isFullscreen={isFullscreen}
           />
         )}
 
@@ -207,6 +236,10 @@ export default function App() {
             onChangeRows={handleUpdateRows}
             onChangeSafety={handleUpdateSafety}
             onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            onToggleFullscreen={toggleAppFullscreen}
+            isFullscreen={isFullscreen}
           />
         )}
 

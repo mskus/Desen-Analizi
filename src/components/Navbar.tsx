@@ -9,7 +9,8 @@ import {
   Upload,
   SlidersHorizontal,
   ShieldCheck,
-  BookmarkPlus
+  BookmarkPlus,
+  Maximize2
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -20,6 +21,8 @@ interface NavbarProps {
   onOpenImport: () => void;
   onOpenSafetySettings?: () => void;
   onOpenSaveToLibrary?: () => void;
+  onToggleFullscreen?: () => void;
+  isFullscreen?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -30,6 +33,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenImport,
   onOpenSafetySettings,
   onOpenSaveToLibrary,
+  onToggleFullscreen,
+  isFullscreen,
 }) => {
   const tabs: { id: ActiveTab; label: string; icon: React.ElementType }[] = [
     { id: 'simulation', label: 'Simülasyon', icon: Eye },
@@ -84,6 +89,20 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Action Tools */}
             <div className="flex items-center space-x-1 sm:space-x-1.5">
+              {onToggleFullscreen && (
+                <button
+                  onClick={onToggleFullscreen}
+                  className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium border transition flex items-center space-x-1 ${
+                    isFullscreen
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                      : 'bg-slate-950 text-slate-300 hover:bg-slate-800 border-slate-800'
+                  }`}
+                  title="Tam Ekran Modu (Tüm Sekmeler İçinde)"
+                >
+                  <Maximize2 className="w-4 h-4 text-blue-400" />
+                  <span className="hidden lg:inline">{isFullscreen ? 'Çık' : 'Tam Ekran'}</span>
+                </button>
+              )}
               {onOpenSaveToLibrary && (
                 <button
                   onClick={onOpenSaveToLibrary}

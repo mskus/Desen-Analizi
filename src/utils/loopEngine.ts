@@ -327,3 +327,84 @@ export function autoFixWarningInRows(
     return r;
   });
 }
+
+export function generateRandomPatternRows(
+  existingRowsCount: number,
+  activeBars: GuideBarId[],
+  safety: SafetyConfig,
+  needleCols: number
+): PatternRow[] {
+  const rowCount = Math.max(8, existingRowsCount || 12);
+  const maxJump = Math.max(1, Math.min(3, safety?.maxSafeShoggingJump || 3));
+  const newRows: PatternRow[] = [];
+
+  const gbPositions: Record<GuideBarId, number[]> = {} as any;
+
+  const motifs = [
+    (c: number, step: number) => (c % 2 === 0 ? step : -step),
+    (c: number, step: number) => {
+      const p = c % 4;
+      return (p === 0 || p === 1) ? step : -step;
+    },
+    (c: number, step: number) => {
+      const p = c % 6;
+      return p < 3 ? step : -step;
+    },
+    (c: number, step: number) => (c % 2 === 0 ? step * 2 : -step * 2),
+  ];
+
+  activeBars.forEach((gbId, gbIdx) => {
+    const spacing = Math.floor((needleCols - 4) / Math.max(1, activeBars.length));
+    let currentNeedle = Math.max(1, Math.min(needleCols - 2, 2 + gbIdx * spacing));
+
+    const positions: number[] = [currentNeedle];
+    const motifFn = motifs[Math.floor(Math.random() * motifs.length)];
+    const stepSize = Math.max(1, Math.min(maxJump, Math.floor(Math.random() * 2) + 1));
+
+    for (let c = 1; c < rowCount; c++) {
+      let delta = motifFn(c, stepSize);
+
+      if (Math.abs(delta) > maxJump) {
+        delta = Math.sign(delta) * maxJump;
+      }
+
+      let nextNeedle = currentNeedle + delta;
+      if (nextNeedle < 0 || nextNeedle >= needleCols) {
+        delta = -delta;
+        nextNeedle = currentNeedle + delta;
+      }
+      nextNeedle = Math.max(0, Math.min(needleCols - 1, nextNeedle));
+      currentNeedle = nextNeedle;
+      positions.push(currentNeedle);
+    }
+
+    gbPositions[gbId] = positions;
+  });
+
+  for (let c = 0; c < rowCount; c++) {
+    const rowObj: PatternRow = {
+      id: 'rand-' + c + '-' + Date.now() + '-' + Math.random().toString(36).substring(2, 5),
+      courseIndex: c + 1,
+      stepIndex: c + 1,
+      GB1: 0,
+      GB2: 0,
+      GB3: 0,
+      GB4: 0,
+      GB5: 0,
+      GB6: 0,
+      loopTypes: {},
+    };
+
+    activeBars.forEach((gbId) => {
+      rowObj[gbId] = gbPositions[gbId][c];
+      const rVal = Math.random();
+      const loopType: LoopType = rVal < 0.65 ? 'open' : rVal < 0.88 ? 'closed' : rVal < 0.96 ? 'tuck' : 'miss';
+      rowObj.loopTypes![gbId] = loopType;
+    });
+
+    newRows.push(rowObj);
+  }
+
+  return newRows;
+}
+

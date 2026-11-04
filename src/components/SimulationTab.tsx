@@ -22,6 +22,10 @@ interface SimulationTabProps {
   onChangeRows?: (rows: PatternRow[]) => void;
   onChangeSafety?: (safety: SafetyConfig) => void;
   onOpenSafetySettings: () => void;
+  activeTab?: any;
+  setActiveTab?: (tab: any) => void;
+  onToggleFullscreen?: () => void;
+  isFullscreen?: boolean;
 }
 
 type SimulationDisplayMode = 'dual' | 'technical' | 'fabric';
@@ -57,11 +61,19 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   onChangeGuideBar,
   onChangeSafety,
   onOpenSafetySettings,
+  activeTab,
+  setActiveTab,
+  onToggleFullscreen,
+  isFullscreen: externalFs,
 }) => {
   const simWrapperRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const toggleSimFullscreen = () => {
+    if (onToggleFullscreen) {
+      onToggleFullscreen();
+      return;
+    }
     if (!simWrapperRef.current) return;
     if (!document.fullscreenElement) {
       simWrapperRef.current.requestFullscreen().catch((err) => console.error(err));
@@ -74,7 +86,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   const savedSettings = getInitialSimSettings();
 
   const [displayMode, setDisplayMode] = useState<SimulationDisplayMode>(
-    savedSettings.displayMode || 'dual'
+    savedSettings.displayMode || 'fabric'
   );
 
   // Maintain local guideBars state for 0ms instantaneous canvas reflection
@@ -266,11 +278,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     setGuideBarsState(newGuideBars);
     onChangeGuideBar(editingGbId, updatedGb);
 
-    // Instant synchronous canvas repaint
-    requestAnimationFrame(() => {
-      drawTechnicalDiagram(newGuideBars);
-      drawFabricSimulation(newGuideBars);
-    });
+    scheduleRedraw(newGuideBars);
   };
 
   // Apply predefined threading preset with instant redraw
@@ -314,10 +322,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     setGuideBarsState(newGuideBars);
     onChangeGuideBar(editingGbId, updatedGb);
 
-    requestAnimationFrame(() => {
-      drawTechnicalDiagram(newGuideBars);
-      drawFabricSimulation(newGuideBars);
-    });
+    scheduleRedraw(newGuideBars);
   };
 
   // Binary text input change with instant redraw
@@ -344,10 +349,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     setGuideBarsState(newGuideBars);
     onChangeGuideBar(editingGbId, updatedGb);
 
-    requestAnimationFrame(() => {
-      drawTechnicalDiagram(newGuideBars);
-      drawFabricSimulation(newGuideBars);
-    });
+    scheduleRedraw(newGuideBars);
   };
 
   // Safety checks calculation
@@ -366,8 +368,22 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     }
   });
 
-  // 1. Draw Technical Warp Knitting Point Paper Diagram
+  // Unified redraw scheduler - only redraws what's visible according to displayMode
+  const scheduleRedraw = useCallback((overrideBars?: Record<GuideBarId, GuideBarConfig>) => {
+    requestAnimationFrame(() => {
+      if (displayMode === 'technical' || displayMode === 'dual') {
+        drawTechnicalDiagram(overrideBars);
+      }
+      if (displayMode === 'fabric' || displayMode === 'dual') {
+        drawFabricSimulation(overrideBars);
+      }
+    });
+  }, [displayMode]);
+
+  // 1. Draw Technical Warp Knitting Point Paper Diagram (Rendered ONLY when visible)
   const drawTechnicalDiagram = (overrideGuideBars?: Record<GuideBarId, GuideBarConfig>) => {
+    if (displayMode !== 'dual' && displayMode !== 'technical') return;
+
     const canvas = technicalCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -385,14 +401,12 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     const startX = 70;
     const startY = 85;
 
-    // A. Needles Header & Vertical Wale Guide Lines
+    // A. Needles Header
     ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center';
 
     for (let n = 0; n < needleCols; n++) {
       const nx = startX + n * needlePitch;
-
-      // Needle Number
       ctx.fillStyle = isWhite ? '#475569' : '#94a3b8';
       ctx.fillText(`İ${n}`, nx, startY - 42);
 
@@ -422,51 +436,65 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
           ctx.stroke();
         }
       });
+    }
 
-      // Needle wale vertical line (as seen in Karl Mayer attachment)
-      ctx.strokeStyle = isWhite ? '#e2e8f0' : '#1e293b';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
+    // Needle wale vertical lines (Batched into one draw call)
+    ctx.strokeStyle = isWhite ? '#e2e8f0' : '#1e293b';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let n = 0; n < needleCols; n++) {
+      const nx = startX + n * needlePitch;
       ctx.moveTo(nx, startY - 5);
       ctx.lineTo(nx, startY + totalCourses * coursePitch + 15);
-      ctx.stroke();
     }
+    ctx.stroke();
 
-    // B. Horizontal Course Grid Lines & Course Labels
-    for (let c = 0; c <= totalCourses; c++) {
+    // B. Horizontal Course Grid Lines (Batched into major and minor lines)
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = isWhite ? '#94a3b8' : '#1e3a8a';
+    ctx.beginPath();
+    for (let c = 0; c <= totalCourses; c += rows.length) {
       const cy = startY + c * coursePitch;
-
-      ctx.strokeStyle = c % rows.length === 0
-        ? (isWhite ? '#94a3b8' : '#1e3a8a')
-        : (isWhite ? '#f1f5f9' : '#0f172a');
-      ctx.lineWidth = c % rows.length === 0 ? 1.5 : 0.8;
-      ctx.beginPath();
       ctx.moveTo(startX - 20, cy);
       ctx.lineTo(startX + (needleCols - 1) * needlePitch + 20, cy);
-      ctx.stroke();
+    }
+    ctx.stroke();
 
-      if (c < totalCourses) {
-        const courseNum = c + 1;
-        ctx.fillStyle = c % rows.length === 0
-          ? (isWhite ? '#0284c7' : '#38bdf8')
-          : (isWhite ? '#64748b' : '#64748b');
-        ctx.font = 'bold 11px monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText(`K${courseNum}`, startX - 26, cy + coursePitch / 2 + 4);
-      }
+    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = isWhite ? '#f1f5f9' : '#0f172a';
+    ctx.beginPath();
+    for (let c = 0; c <= totalCourses; c++) {
+      if (c % rows.length === 0) continue;
+      const cy = startY + c * coursePitch;
+      ctx.moveTo(startX - 20, cy);
+      ctx.lineTo(startX + (needleCols - 1) * needlePitch + 20, cy);
+    }
+    ctx.stroke();
+
+    // Course Labels
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'right';
+    for (let c = 0; c < totalCourses; c++) {
+      const cy = startY + c * coursePitch;
+      const courseNum = c + 1;
+      ctx.fillStyle = c % rows.length === 0
+        ? (isWhite ? '#0284c7' : '#38bdf8')
+        : (isWhite ? '#64748b' : '#64748b');
+      ctx.fillText(`K${courseNum}`, startX - 26, cy + coursePitch / 2 + 4);
     }
 
-    // C. Needle Trick Points (Pins) at each (course, needle) intersection
+    // C. Needle Trick Points (Pins) - Batched into a single fill call for 100x performance
+    ctx.fillStyle = isWhite ? '#94a3b8' : '#334155';
+    ctx.beginPath();
     for (let c = 0; c < totalCourses; c++) {
       const cy = startY + c * coursePitch + coursePitch / 2;
       for (let n = 0; n < needleCols; n++) {
         const nx = startX + n * needlePitch;
-        ctx.fillStyle = isWhite ? '#94a3b8' : '#334155';
-        ctx.beginPath();
+        ctx.moveTo(nx + 2.5, cy);
         ctx.arc(nx, cy, 2.5, 0, Math.PI * 2);
-        ctx.fill();
       }
     }
+    ctx.fill();
 
     if (activeBars.length === 0) {
       ctx.fillStyle = isWhite ? '#64748b' : '#94a3b8';
@@ -626,8 +654,10 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     }
   };
 
-  // 2. Draw Realistic Fabric Simulation with Instant Real-Time Threading Feedback
+  // 2. Draw Realistic Fabric Simulation with Instant Real-Time Threading Feedback (High Performance)
   const drawFabricSimulation = (overrideGuideBars?: Record<GuideBarId, GuideBarConfig>) => {
+    if (displayMode !== 'dual' && displayMode !== 'fabric') return;
+
     const canvas = fabricCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -668,129 +698,104 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       return i % 2 === 0;
     });
 
-    // Needle Wales Header & Threading Indicators (Dolu / Boş Durumu)
+    // Needle Wales Header
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
     for (let n = 0; n < needleCols; n++) {
       const nx = startX + n * needlePitch;
-
-      // Needle Index
       ctx.fillStyle = '#94a3b8';
       ctx.fillText(`İ${n}`, nx, startY - 42);
-
-      // Threading status of the selected guide bar (LIVE REFLECTION)
-      const isCurrentGbThreaded = editingBarThreading[n] ?? false;
-
-      ctx.save();
-      if (isCurrentGbThreaded) {
-        // DOLU: Glowing colored circle with white core
-        ctx.fillStyle = currentGbConfig?.color || '#38bdf8';
-        ctx.shadowColor = currentGbConfig?.color || '#38bdf8';
-        ctx.shadowBlur = 8;
-        ctx.beginPath();
-        ctx.arc(nx, startY - 20, 6, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(nx, startY - 20, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        // BOŞ: Distinct hollow ring with dashed border colored by selected guide bar
-        ctx.strokeStyle = currentGbConfig?.color || '#ef4444';
-        ctx.lineWidth = 1.8;
-        ctx.setLineDash([2, 2]);
-        ctx.beginPath();
-        ctx.arc(nx, startY - 20, 5.5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-      ctx.restore();
-
-      // Wale vertical baseline
-      ctx.strokeStyle = isCurrentGbThreaded ? 'rgba(255, 255, 255, 0.08)' : 'rgba(239, 68, 68, 0.10)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(nx, startY + 5);
-      ctx.lineTo(nx, startY + totalCourses * coursePitch + 10);
-      ctx.stroke();
     }
 
-    // Helper: Determine if needle 'needle' at course 'c' has yarn from visible bars
-    const hasYarnAtNeedle = (c: number, needle: number) => {
-      const rIdx = c % rows.length;
-      const row = rows[rIdx];
-      return activeAndVisibleBars.some((gbId) => {
-        const gb = gbMap[gbId];
-        if (!gb) return false;
-        const shift = row[gbId] || 0;
-        const guide = needle - shift;
-        if (guide < 0 || guide >= needleCols) return false;
-        const arr = gb.threadingArray || [];
-        return arr[guide] === true;
-      });
-    };
+    // Wale vertical baselines (Batched)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let n = 0; n < needleCols; n++) {
+      const nx = startX + n * needlePitch;
+      ctx.moveTo(nx, startY + 5);
+      ctx.lineTo(nx, startY + totalCourses * coursePitch + 10);
+    }
+    ctx.stroke();
 
-    // Helper: Determine if current editing guide bar has yarn at needle
-    const hasEditingBarYarnAtNeedle = (c: number, needle: number) => {
-      const rIdx = c % rows.length;
-      const row = rows[rIdx];
-      const shift = row[editingGbId] || 0;
-      const guide = needle - shift;
-      if (guide < 0 || guide >= needleCols) return false;
-      return editingBarThreading[guide] === true;
-    };
+    // Precompute yarn presence grid for all (course, needle) in a single fast O(N) pass
+    const yarnPresent = new Uint8Array(totalCourses * needleCols);
+    const editingYarnPresent = new Uint8Array(totalCourses * needleCols);
 
-    // Pore Mesh Background: Open pores & empty pile relief channels where yarn is absent
-    if (showPoreMesh) {
-      for (let c = 0; c < totalCourses; c++) {
-        for (let n = 0; n < needleCols; n++) {
-          const hasYarn = isolateActiveBar ? hasEditingBarYarnAtNeedle(c, n) : hasYarnAtNeedle(c, n);
-          const hasEditingYarn = hasEditingBarYarnAtNeedle(c, n);
-
-          if (!hasYarn || (!isolateActiveBar && !hasEditingYarn)) {
-            // Open mesh pore (delik/boşluk/rölyef oluğu) where yarn is absent
-            const poreCx = startX + n * needlePitch;
-            const poreCy = startY + c * coursePitch + coursePitch / 2;
-
-            ctx.save();
-            ctx.fillStyle = !hasYarn ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.45)';
-            ctx.beginPath();
-            ctx.ellipse(
-              poreCx,
-              poreCy,
-              needlePitch * 0.38,
-              coursePitch * 0.35,
-              0,
-              0,
-              Math.PI * 2
-            );
-            ctx.fill();
-
-            ctx.strokeStyle = !hasYarn ? 'rgba(56, 189, 248, 0.35)' : 'rgba(148, 163, 184, 0.15)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash(!hasYarn ? [3, 2] : []);
-            ctx.stroke();
-
-            // Pore center crosshair
-            ctx.strokeStyle = !hasYarn ? 'rgba(56, 189, 248, 0.25)' : 'rgba(148, 163, 184, 0.10)';
-            ctx.beginPath();
-            ctx.moveTo(poreCx - 4, poreCy);
-            ctx.lineTo(poreCx + 4, poreCy);
-            ctx.moveTo(poreCx, poreCy - 4);
-            ctx.lineTo(poreCx, poreCy + 4);
-            ctx.stroke();
-            ctx.restore();
+    activeAndVisibleBars.forEach((gbId) => {
+      const gb = gbMap[gbId];
+      if (!gb) return;
+      const tArr = gb.threadingArray;
+      const isEditingBar = gbId === editingGbId;
+      for (let rep = 0; rep < repeatY; rep++) {
+        for (let rIdx = 0; rIdx < rows.length; rIdx++) {
+          const c = rep * rows.length + rIdx;
+          const shift = rows[rIdx][gbId] || 0;
+          for (let g = 0; g < needleCols; g++) {
+            const isThreaded = tArr && typeof tArr[g] === 'boolean' ? tArr[g] : (g % 2 === 0);
+            if (isThreaded) {
+              const actualNeedle = g + shift;
+              if (actualNeedle >= 0 && actualNeedle < needleCols) {
+                const idx = c * needleCols + actualNeedle;
+                yarnPresent[idx] = 1;
+                if (isEditingBar) {
+                  editingYarnPresent[idx] = 1;
+                }
+              }
+            }
           }
         }
       }
+    });
+
+    // Pore Mesh Analysis: Subtle background highlights for open mesh pores (Non-obscuring)
+    if (showPoreMesh) {
+      ctx.save();
+      // Highlight open mesh pores (where no yarn exists)
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 2]);
+
+      ctx.beginPath();
+      for (let c = 0; c < totalCourses; c++) {
+        const poreCy = startY + c * coursePitch + coursePitch / 2;
+        for (let n = 0; n < needleCols; n++) {
+          const idx = c * needleCols + n;
+          const hasYarn = isolateActiveBar ? editingYarnPresent[idx] : yarnPresent[idx];
+          if (!hasYarn) {
+            const poreCx = startX + n * needlePitch;
+            ctx.moveTo(poreCx + needlePitch * 0.35, poreCy);
+            ctx.ellipse(poreCx, poreCy, needlePitch * 0.35, coursePitch * 0.3, 0, 0, Math.PI * 2);
+          }
+        }
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      // Subtle crosshairs for empty pore centers
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      for (let c = 0; c < totalCourses; c++) {
+        const poreCy = startY + c * coursePitch + coursePitch / 2;
+        for (let n = 0; n < needleCols; n++) {
+          const idx = c * needleCols + n;
+          const hasYarn = isolateActiveBar ? editingYarnPresent[idx] : yarnPresent[idx];
+          if (!hasYarn) {
+            const poreCx = startX + n * needlePitch;
+            ctx.moveTo(poreCx - 3, poreCy);
+            ctx.lineTo(poreCx + 3, poreCy);
+            ctx.moveTo(poreCx, poreCy - 3);
+            ctx.lineTo(poreCx, poreCy + 3);
+          }
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
     }
 
-    // PROPER WARP KNITTING LAYER ORDER:
-    // 1. Base / Ground Bars (GB6, GB5) - drawn in background
-    // 2. Inlay / Weft Bars (GB4, GB2) - drawn in middle
-    // 3. Pile / Face Bars (GB1, GB3) - drawn on surface
-    // 4. Currently EDITED Bar (editingGbId) - ALWAYS drawn on top so threading changes are 100% visible!
+    // PROPER WARP KNITTING LAYER ORDER
     const sortedBars = [...activeAndVisibleBars].sort((a, b) => {
       if (a === editingGbId) return 1;
       if (b === editingGbId) return -1;
@@ -809,9 +814,25 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       const yarnRadius = Math.max(2.5, Math.min(6.0, gb.dtex / 40 + (isEdited ? 1.8 : 1.0)));
       const threadingArr = gb.threadingArray || Array.from({ length: needleCols }, (_, i) => i % 2 === 0);
 
-      // Iterate through guides: Only guides that are THREADED (Dolu) produce loops!
+      // Collect loop nodes for batching
+      const loopCoords: { x: number; y: number }[] = [];
+
+      ctx.save();
+      ctx.strokeStyle = gb.color;
+      ctx.lineWidth = yarnRadius * 2;
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = isEdited ? 1.0 : (gbId === 'GB5' || gbId === 'GB6') ? 0.65 : 0.85;
+
+      // Only apply blur to active bar to preserve smooth 60 FPS
+      if (isEdited) {
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 2;
+      }
+
+      ctx.beginPath();
       for (let g = 0; g < needleCols; g++) {
-        if (!threadingArr[g]) continue; // Boş ise iplik KESİNLİKLE YOK!
+        if (!threadingArr[g]) continue;
 
         for (let rep = 0; rep < repeatY; rep++) {
           rows.forEach((row, rIdx) => {
@@ -823,7 +844,8 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               const x = startX + actualNeedle * needlePitch;
               const y = startY + c * coursePitch + coursePitch / 2;
 
-              // Draw Underlap strand connecting from previous course
+              loopCoords.push({ x, y });
+
               if (c > 0) {
                 const prevRow = rIdx === 0 ? rows[rows.length - 1] : rows[rIdx - 1];
                 const prevShift = prevRow[gbId] || 0;
@@ -833,58 +855,59 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                   const prevX = startX + prevNeedle * needlePitch;
                   const prevY = startY + (c - 1) * coursePitch + coursePitch / 2;
 
-                  ctx.save();
-                  ctx.strokeStyle = gb.color;
-                  ctx.lineWidth = yarnRadius * 2;
-                  ctx.lineCap = 'round';
-                  ctx.globalAlpha = isEdited ? 1.0 : (gbId === 'GB5' || gbId === 'GB6') ? 0.65 : 0.85;
-                  ctx.shadowColor = 'rgba(0,0,0,0.6)';
-                  ctx.shadowBlur = isEdited ? 6 : 3;
-                  ctx.shadowOffsetY = 2;
-
-                  ctx.beginPath();
                   ctx.moveTo(prevX, prevY);
                   ctx.quadraticCurveTo((prevX + x) / 2, (prevY + y) / 2, x, y);
-                  ctx.stroke();
-
-                  // Specular highlight on active yarn
-                  ctx.strokeStyle = isEdited ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.30)';
-                  ctx.lineWidth = yarnRadius * 0.7;
-                  ctx.beginPath();
-                  ctx.moveTo(prevX, prevY);
-                  ctx.quadraticCurveTo((prevX + x) / 2, (prevY + y) / 2, x, y);
-                  ctx.stroke();
-                  ctx.restore();
                 }
               }
-
-              // Overlap Loop Crown (Knitted stitch head)
-              ctx.save();
-              ctx.fillStyle = gb.color;
-              ctx.globalAlpha = isEdited ? 1.0 : (gbId === 'GB5' || gbId === 'GB6') ? 0.70 : 0.88;
-              ctx.shadowColor = isEdited ? gb.color : 'rgba(0,0,0,0.7)';
-              ctx.shadowBlur = isEdited ? 8 : 4;
-
-              ctx.beginPath();
-              ctx.arc(x, y, yarnRadius * (isEdited ? 1.9 : 1.6), 0, Math.PI * 2);
-              ctx.fill();
-
-              // Highlight outline for active editing bar
-              if (isEdited) {
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 1.2;
-                ctx.stroke();
-              }
-
-              // Specular sheen core
-              ctx.fillStyle = isEdited ? 'rgba(255, 255, 255, 0.65)' : 'rgba(255, 255, 255, 0.40)';
-              ctx.beginPath();
-              ctx.arc(x - yarnRadius * 0.35, y - yarnRadius * 0.35, yarnRadius * 0.75, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.restore();
             }
           });
         }
+      }
+      ctx.stroke();
+
+      // Specular yarn highlight
+      ctx.strokeStyle = isEdited ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.30)';
+      ctx.lineWidth = yarnRadius * 0.7;
+      ctx.stroke();
+      ctx.restore();
+
+      // Batch draw Overlap Loop Crowns for this guide bar
+      if (loopCoords.length > 0) {
+        const crownR = yarnRadius * (isEdited ? 1.9 : 1.6);
+
+        ctx.save();
+        ctx.fillStyle = gb.color;
+        ctx.globalAlpha = isEdited ? 1.0 : (gbId === 'GB5' || gbId === 'GB6') ? 0.70 : 0.88;
+        if (isEdited) {
+          ctx.shadowColor = gb.color;
+          ctx.shadowBlur = 8;
+        }
+
+        ctx.beginPath();
+        loopCoords.forEach(({ x, y }) => {
+          ctx.moveTo(x + crownR, y);
+          ctx.arc(x, y, crownR, 0, Math.PI * 2);
+        });
+        ctx.fill();
+
+        if (isEdited) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+
+        // Specular sheen core
+        ctx.fillStyle = isEdited ? 'rgba(255, 255, 255, 0.65)' : 'rgba(255, 255, 255, 0.40)';
+        ctx.beginPath();
+        loopCoords.forEach(({ x, y }) => {
+          const sx = x - yarnRadius * 0.35;
+          const sy = y - yarnRadius * 0.35;
+          const sr = yarnRadius * 0.75;
+          ctx.moveTo(sx + sr, sy);
+          ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+        });
+        ctx.fill();
+        ctx.restore();
       }
     });
 
@@ -898,11 +921,34 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     }
   };
 
-  // Immediate redraw on any state change
+  // Debounced / RAF-batched redraw with explicit dependencies (No infinite unconstrained loops)
   useEffect(() => {
-    drawTechnicalDiagram();
-    drawFabricSimulation();
-  });
+    let animId: number;
+    animId = requestAnimationFrame(() => {
+      if (displayMode === 'technical' || displayMode === 'dual') {
+        drawTechnicalDiagram();
+      }
+      if (displayMode === 'fabric' || displayMode === 'dual') {
+        drawFabricSimulation();
+      }
+    });
+    return () => cancelAnimationFrame(animId);
+  }, [
+    displayMode,
+    guideBarsState,
+    pattern.guideBars,
+    pattern.rows,
+    needleCols,
+    paperTheme,
+    repeatY,
+    showStepNumbers,
+    showLoopCurves,
+    showPoreMesh,
+    isolateActiveBar,
+    editingGbId,
+    visibleBars,
+    coursePitch,
+  ]);
 
   const downloadSimulationImage = (canvas: HTMLCanvasElement | null, fileName: string) => {
     if (!canvas) return;
@@ -927,10 +973,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                   key={id}
                   onClick={() => {
                     setEditingGbId(id);
-                    requestAnimationFrame(() => {
-                      drawTechnicalDiagram();
-                      drawFabricSimulation();
-                    });
+                    scheduleRedraw();
                   }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 border shrink-0 ${
                     editingGbId === id
@@ -961,10 +1004,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
             <button
               onClick={() => {
                 setIsolateActiveBar((prev) => !prev);
-                requestAnimationFrame(() => {
-                  drawTechnicalDiagram();
-                  drawFabricSimulation();
-                });
+                scheduleRedraw();
               }}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
                 isolateActiveBar
@@ -1004,133 +1044,128 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
 
         {/* Needle Button Strip (Mobile Touch Friendly) */}
         <div className="pt-1 space-y-2">
-          {/* Needle Count Selector & Slider */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 text-xs">
-            <div className="flex items-center space-x-2">
-              <span className="text-slate-400 font-medium pl-1">Toplam İğne Sayısı:</span>
-              <span className="text-blue-400 font-mono font-bold">{needleCols}</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <input
-                type="range"
-                min="8"
-                max="128"
-                step="4"
-                value={needleCols}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  if (onChangeSafety) {
-                    onChangeSafety({
-                      ...pattern.safety,
-                      maxAllowedNeedleNumber: val,
-                    });
-                  }
-                }}
-                className="w-32 sm:w-40 accent-blue-500 cursor-pointer"
-              />
-              <div className="flex items-center space-x-1">
-                {[16, 32, 64, 128].map((nCnt) => (
-                  <button
-                    key={nCnt}
-                    onClick={() => {
-                      if (onChangeSafety) {
-                        onChangeSafety({
-                          ...pattern.safety,
-                          maxAllowedNeedleNumber: nCnt,
-                        });
-                      }
-                    }}
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition ${
-                      needleCols === nCnt
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-                    }`}
-                  >
-                    {nCnt}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5 px-0.5">
-            <span className="font-medium text-slate-300">{editingGbId} İğne Dizimi:</span>
-            <div className="flex items-center space-x-1.5 font-mono text-[11px]">
-              <span className="text-emerald-400">{currentThreading.filter(Boolean).length} Dolu</span>
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-1 px-0.5">
+            <span className="font-semibold text-slate-200">{editingGbId} İğne Dizimi:</span>
+            <div className="flex items-center space-x-1.5 font-mono text-xs">
+              <span className="text-emerald-400 font-bold">{currentThreading.filter(Boolean).length} Dolu</span>
               <span>/</span>
-              <span className="text-slate-500">{needleCols - currentThreading.filter(Boolean).length} Boş</span>
+              <span className="text-slate-400">{needleCols - currentThreading.filter(Boolean).length} Boş</span>
             </div>
           </div>
 
-          <div className="flex items-center overflow-x-auto py-1 gap-1.5 scrollbar-thin">
+          <div className="grid grid-cols-8 sm:grid-cols-12 md:grid-cols-16 gap-1 p-1.5 max-h-52 overflow-y-auto bg-slate-950/80 rounded-xl border border-slate-800/80">
             {Array.from({ length: needleCols }).map((_, nIdx) => {
               const isThreaded = currentThreading[nIdx] ?? false;
               return (
                 <button
                   key={nIdx}
                   onClick={() => handleToggleNeedle(nIdx)}
-                  className={`flex-1 min-w-[38px] sm:min-w-[42px] h-12 flex flex-col items-center justify-center rounded-xl transition border touch-manipulation ${
+                  className={`h-10 flex flex-col items-center justify-center rounded-lg border touch-manipulation active:scale-95 transition-colors ${
                     isThreaded
-                      ? 'bg-blue-950/60 border-blue-500 text-white'
-                      : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
+                      ? 'bg-blue-950/90 border-blue-500 text-white shadow-sm'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
                   }`}
                   title={`İğne ${nIdx}: ${isThreaded ? 'Dolu' : 'Boş'}`}
                 >
-                  <span className="text-[10px] font-mono text-slate-400 leading-none">İ{nIdx}</span>
+                  <span className="text-xs font-bold font-mono text-slate-200 leading-none">İ{nIdx}</span>
                   <span
-                    className={`w-3.5 h-3.5 rounded-full mt-1 flex items-center justify-center text-[9px] font-bold ${
+                    className={`w-2.5 h-2.5 rounded-full mt-1 ${
                       isThreaded ? 'border border-white/80' : 'border border-slate-700'
                     }`}
                     style={{ backgroundColor: isThreaded ? currentGb.color : 'transparent' }}
-                  >
-                    {isThreaded ? '' : ''}
-                  </span>
+                  />
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Quick Presets Row */}
-        <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-slate-800/80">
+        {/* Quick Presets & Needle Count Row */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 text-xs">
+          {/* Template Presets */}
           <div className="flex flex-wrap items-center gap-1">
-            <span className="text-xs text-slate-400 font-medium mr-1">Şablon:</span>
+            <span className="text-slate-400 font-semibold mr-1">Şablon:</span>
             <button
               onClick={() => handleApplyPreset('5-5')}
-              className="px-2 py-1 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 rounded-lg text-xs font-semibold border border-emerald-800 transition"
+              className="px-2 py-1 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 rounded-lg font-semibold border border-emerald-800 transition"
             >
               5 Dolu 5 Boş
             </button>
             <button
               onClick={() => handleApplyPreset('full')}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg text-xs border border-slate-800 transition"
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition"
             >
               Tam Dolu
             </button>
             <button
               onClick={() => handleApplyPreset('1-1')}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg text-xs border border-slate-800 transition"
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition"
             >
               1-1
             </button>
             <button
               onClick={() => handleApplyPreset('1-2')}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg text-xs border border-slate-800 transition hidden sm:inline-block"
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition hidden sm:inline-block"
             >
               1-2
             </button>
             <button
               onClick={() => handleApplyPreset('clear')}
-              className="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 rounded-lg text-xs border border-rose-900 transition"
+              className="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 rounded-lg border border-rose-900 transition"
             >
               Tümü Boş
             </button>
             <button
               onClick={() => handleApplyPreset('invert')}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg text-xs border border-slate-800 transition"
+              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition"
             >
               Ters
             </button>
+          </div>
+
+          {/* Needle Count Selector Inline */}
+          <div className="flex items-center space-x-2 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+            <span className="text-slate-400 font-medium">İğne Sayısı:</span>
+            <span className="text-blue-400 font-mono font-bold">{needleCols}</span>
+            <input
+              type="range"
+              min="8"
+              max="128"
+              step="4"
+              value={needleCols}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (onChangeSafety) {
+                  onChangeSafety({
+                    ...pattern.safety,
+                    maxAllowedNeedleNumber: val,
+                  });
+                }
+              }}
+              className="w-20 sm:w-28 accent-blue-500 cursor-pointer"
+            />
+            <div className="flex items-center space-x-1">
+              {[16, 32, 64, 128].map((nCnt) => (
+                <button
+                  key={nCnt}
+                  onClick={() => {
+                    if (onChangeSafety) {
+                      onChangeSafety({
+                        ...pattern.safety,
+                        maxAllowedNeedleNumber: nCnt,
+                      });
+                    }
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition ${
+                    needleCols === nCnt
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                >
+                  {nCnt}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Quick Visibility Filter */}
