@@ -16,7 +16,7 @@ import {
   subscribeToCloudPatterns,
   getClientAuthorId,
 } from './services/patternSyncService';
-import { logSiteVisit, trackSharedLinkOpened } from './services/loggingService';
+import { logSiteVisit, trackSharedLinkOpened, startPresencePing } from './services/loggingService';
 import { Check } from 'lucide-react';
 
 export default function App() {
@@ -103,9 +103,13 @@ export default function App() {
     localStorage.setItem('warpknitt_custom_patterns', JSON.stringify(customPatterns));
   }, [customPatterns]);
 
-  // Log site visit on initial boot
+  // Log site visit & start real-time presence heartbeat on boot
   useEffect(() => {
     logSiteVisit().catch((err) => console.error('Site visit log error:', err));
+    const stopPresence = startPresencePing();
+    return () => {
+      stopPresence();
+    };
   }, []);
 
   // Real-time synchronization of shared community patterns
@@ -249,7 +253,19 @@ export default function App() {
     }));
   };
 
-  const isFullscreen = false;
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
+    return typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false;
+  });
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
   const toggleAppFullscreen = () => {
     if (!document.fullscreenElement) {

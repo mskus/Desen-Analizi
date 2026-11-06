@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { AccessLogItem, subscribeToAccessLogs, deleteAccessLog } from '../services/loggingService';
+import {
+  AccessLogItem,
+  ActiveUser,
+  subscribeToAccessLogs,
+  subscribeToActiveUsers,
+  deleteAccessLog,
+  getSessionId,
+} from '../services/loggingService';
 import {
   ShieldAlert,
   Lock,
@@ -13,9 +20,9 @@ import {
   Eye,
   Trash2,
   Check,
-  RefreshCw,
   Clock,
-  ArrowRight,
+  Radio,
+  UserCheck,
 } from 'lucide-react';
 
 interface AccessLogsTabProps {
@@ -36,16 +43,25 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
   const [authError, setAuthError] = useState(false);
 
   const [logs, setLogs] = useState<AccessLogItem[]>([]);
+  const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<string>('Tümü');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  const currentSessionId = typeof sessionStorage !== 'undefined' ? getSessionId() : '';
+
   useEffect(() => {
     if (!isUnlocked) return;
-    const unsub = subscribeToAccessLogs((fetchedLogs) => {
+    const unsubLogs = subscribeToAccessLogs((fetchedLogs) => {
       setLogs(fetchedLogs);
     });
-    return () => unsub();
+    const unsubActive = subscribeToActiveUsers((users) => {
+      setActiveUsers(users);
+    });
+    return () => {
+      unsubLogs();
+      unsubActive();
+    };
   }, [isUnlocked]);
 
   const handleUnlock = (e: React.FormEvent) => {
@@ -178,7 +194,7 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
                 </span>
               </h2>
               <p className="text-[11px] text-slate-400">
-                Giriş yapan cihazlar, konumlar, oluşturulan ve farklı konumlarda açılan desen linkleri.
+                Canlı aktif kullanıcılar, giriş yapan cihazlar, konumlar ve paylaşılan linkler.
               </p>
             </div>
           </div>
@@ -195,7 +211,19 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
         </div>
 
         {/* Metric Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+          {/* Live Online Users Card */}
+          <div className="bg-emerald-950/40 border border-emerald-800/80 p-2.5 rounded-lg flex items-center justify-between">
+            <div>
+              <span className="text-emerald-400 text-[11px] font-medium flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Canlı Aktif</span>
+              </span>
+              <strong className="text-base font-bold text-emerald-300 font-mono tabular-nums">{activeUsers.length} Online</strong>
+            </div>
+            <Radio className="w-4 h-4 text-emerald-400 shrink-0" />
+          </div>
+
           <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
             <div>
               <span className="text-slate-400 text-[11px] font-medium block">Toplam Log</span>
@@ -220,7 +248,7 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
             <Share2 className="w-4 h-4 text-purple-400 shrink-0" />
           </div>
 
-          <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+          <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between col-span-2 sm:col-span-1">
             <div>
               <span className="text-slate-400 text-[11px] font-medium block">Açılan Link</span>
               <strong className="text-sm font-bold text-amber-400 font-mono tabular-nums">{openCount}</strong>
@@ -228,6 +256,65 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
             <ExternalLink className="w-4 h-4 text-amber-400 shrink-0" />
           </div>
         </div>
+
+        {/* Live Active Users Banner/Grid */}
+        {activeUsers.length > 0 && (
+          <div className="bg-[#0B0F17] border border-emerald-900/60 rounded-lg p-2.5 space-y-2">
+            <div className="flex items-center justify-between text-xs text-emerald-400 font-bold">
+              <div className="flex items-center gap-1.5">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span>Anlık Aktif Kullanıcı Listesi (Canlı Firestore Kaydı)</span>
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono">{activeUsers.length} Bağlantı</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
+              {activeUsers.map((u) => {
+                const isMe = u.sessionId === currentSessionId;
+                const lastSecs = Math.max(0, Math.floor((Date.now() - new Date(u.lastActiveAt).getTime()) / 1000));
+                const activeTimeStr = lastSecs < 10 ? 'Şimdi aktif' : `${lastSecs}sn önce`;
+
+                return (
+                  <div
+                    key={u.sessionId}
+                    className={`p-2 rounded border flex items-start justify-between gap-2 ${
+                      isMe ? 'bg-emerald-950/30 border-emerald-800' : 'bg-[#111827] border-slate-800'
+                    }`}
+                  >
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-1 text-[11px] font-bold text-white">
+                        {u.device.isMobile ? (
+                          <Smartphone className="w-3 h-3 text-purple-400 shrink-0" />
+                        ) : (
+                          <Monitor className="w-3 h-3 text-blue-400 shrink-0" />
+                        )}
+                        <span className="truncate">{u.location?.displayLocation || 'Konum Alınıyor'}</span>
+                        {isMe && (
+                          <span className="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-1 rounded shrink-0">
+                            Siz
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+                        <span>İP: {u.location?.ip || 'Gizli'}</span>
+                        <span>·</span>
+                        <span>{u.device.os} / {u.device.browser}</span>
+                      </div>
+                    </div>
+
+                    <span className="text-[10px] text-emerald-400 font-mono font-semibold shrink-0">
+                      {activeTimeStr}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Filter & Search Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
@@ -261,7 +348,7 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
         </div>
       </section>
 
-      {/* Access Logs Table & Cards */}
+      {/* Access Logs List */}
       {filteredLogs.length === 0 ? (
         <div className="bg-[#111827] border border-slate-800 rounded-xl p-8 text-center text-slate-400 text-xs">
           Henüz kayıtlı bir log bulunmuyor.

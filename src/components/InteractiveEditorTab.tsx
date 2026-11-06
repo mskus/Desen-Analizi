@@ -342,6 +342,18 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
 
   const calculateEditorFitZoom = useCallback(() => {
     if (!isAutoZoom) return;
+    if (isFullscreen || isCanvasFullscreen) {
+      // In fullscreen mode, keep 100% natural resolution or horizontal fit so it expands vertically
+      const container = containerRef.current;
+      if (container && container.clientWidth > 0 && canvasWidth > 0) {
+        const fitW = (container.clientWidth - 16) / canvasWidth;
+        const clampedW = Math.max(0.75, Math.min(1.0, Math.floor(fitW * 100) / 100));
+        setZoom(clampedW);
+      } else {
+        setZoom(1.0);
+      }
+      return;
+    }
     const container = containerRef.current;
     if (!container) return;
 
@@ -351,7 +363,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       const clamped = Math.max(0.35, Math.min(1.5, Math.floor(fit * 100) / 100));
       setZoom(clamped);
     }
-  }, [isAutoZoom, canvasHeight]);
+  }, [isAutoZoom, canvasHeight, canvasWidth, isFullscreen, isCanvasFullscreen]);
 
   useEffect(() => {
     calculateEditorFitZoom();
@@ -1474,10 +1486,10 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
               setZoom((z) => Math.max(0.35, Math.min(2.2, Math.round((z + delta) * 100) / 100)));
             }
           }}
-          className={`p-0.5 overflow-auto bg-[#070b14] flex justify-center cursor-crosshair select-none touch-pan-x touch-pan-y ${
+          className={`p-0.5 bg-[#070b14] flex justify-center cursor-crosshair select-none touch-pan-x touch-pan-y ${
             isFullscreen || isCanvasFullscreen
-              ? 'h-[calc(100vh-90px)] max-h-none'
-              : 'max-h-[340px]'
+              ? 'overflow-x-auto overflow-y-visible h-auto max-h-none'
+              : 'overflow-auto max-h-[340px]'
           }`}
         >
           <div

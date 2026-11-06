@@ -34,29 +34,25 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
     'Özel',
   ];
 
-  const handleSharePattern = async (pat: PatternData) => {
+  const handleSharePattern = (pat: PatternData) => {
     try {
-      const { url } = await createSharedPatternLink(pat);
+      const { url } = createSharedPatternLink(pat);
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(url);
+        navigator.clipboard.writeText(url).catch(() => {});
       }
       setShareToast({
         msg: `"${pat.title}" paylaşım linki kopyalandı!`,
         link: url,
       });
-      setTimeout(() => setShareToast(null), 5000);
+      setTimeout(() => setShareToast(null), 4000);
 
       // Web Share API native share popup if mobile
       if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ url })) {
-        try {
-          await navigator.share({
-            title: pat.title,
-            text: `Warp Knitting Tekstil Deseni: ${pat.title}`,
-            url,
-          });
-        } catch (err) {
-          // User closed share modal
-        }
+        navigator.share({
+          title: pat.title,
+          text: `Warp Knitting Tekstil Deseni: ${pat.title}`,
+          url,
+        }).catch(() => {});
       }
     } catch (err) {
       console.error('Share link generation failed', err);

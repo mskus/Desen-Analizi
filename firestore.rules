@@ -54,6 +54,11 @@ service cloud.firestore {
       allow get, list, create, delete: if isValidId(linkId);
     }
 
+    // Real-time Active User Presence collection
+    match /active_users/{userId} {
+      allow get, list, create, update, delete: if isValidId(userId);
+    }
+
     // Read-only connection testing document
     match /test/{testId} {
       allow read: if true;
