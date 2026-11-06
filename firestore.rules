@@ -29,22 +29,21 @@ service cloud.firestore {
         data.category is string && data.category.size() <= 60 &&
         (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
         (!('difficulty' in data) || (data.difficulty is string && data.difficulty.size() <= 30)) &&
-        (!('thumbnail' in data) || (data.thumbnail is string && data.thumbnail.size() <= 50000)) &&
+        (!('thumbnail' in data) || (data.thumbnail is string && data.thumbnail.size() <= 100000)) &&
         (!('repeatX' in data) || (data.repeatX is number && data.repeatX >= 1 && data.repeatX <= 8)) &&
         (!('repeatY' in data) || (data.repeatY is number && data.repeatY >= 1 && data.repeatY <= 8));
     }
 
-    // Shared community patterns collection
+    // Shared community patterns collection (common library accessible to all users)
     match /patterns/{patternId} {
       allow get, list: if true;
-      allow create: if isValidId(patternId) &&
-                       incoming().id == patternId &&
-                       isValidPattern(incoming());
-      allow update: if false;
+      allow create, update: if isValidId(patternId) &&
+                               incoming().id == patternId &&
+                               isValidPattern(incoming());
       allow delete: if isValidId(patternId);
     }
 
-    // Access Logs collection (Device, Location, Visit & Link Tracking)
+    // Access Logs collection (Device, Location, Visit, Exit & Link Tracking)
     match /access_logs/{logId} {
       allow get, list, create, delete: if isValidId(logId);
     }

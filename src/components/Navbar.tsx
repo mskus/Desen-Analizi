@@ -207,14 +207,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* Cloud Community Sync Status */}
+            {/* Cloud Community Sync Status / GitHub Version */}
             <div
               className="flex items-center gap-1.5 bg-[#111827] px-2 py-1 rounded border border-slate-700 text-xs"
-              title={isSyncing ? 'Desenler Senkronize Ediliyor...' : 'Bulut Kütüphanesi Çevrimiçi'}
+              title={isSyncing ? 'Desenler Senkronize Ediliyor...' : 'GitHub Pages v2.4.1 Çevrimiçi'}
             >
               <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'text-amber-400 animate-pulse' : 'text-emerald-400'}`} />
-              <span className="text-[11px] text-slate-300 font-medium hidden md:inline">
-                {isSyncing ? 'Eşitleniyor' : 'Canlı'}
+              <span className="text-[11px] text-slate-300 font-mono font-bold hidden md:inline">
+                {isSyncing ? 'Eşitleniyor' : 'v2.4.1'}
               </span>
             </div>
 

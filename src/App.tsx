@@ -15,6 +15,8 @@ import {
   deletePatternFromCloud,
   subscribeToCloudPatterns,
   getClientAuthorId,
+  seedDefaultPatternsIfNeeded,
+  getCachedPatterns,
 } from './services/patternSyncService';
 import { logSiteVisit, logSiteExit, trackSharedLinkOpened, startPresencePing } from './services/loggingService';
 import { Check } from 'lucide-react';
@@ -33,14 +35,8 @@ export default function App() {
   }, [activeTab]);
 
   const [customPatterns, setCustomPatterns] = useState<PatternData[]>(() => {
-    const saved = localStorage.getItem('warpknitt_custom_patterns');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse custom patterns', e);
-      }
-    }
+    const cached = getCachedPatterns();
+    if (cached && cached.length > 0) return cached;
     return [];
   });
 
@@ -122,24 +118,15 @@ export default function App() {
     };
   }, []);
 
-  // Real-time synchronization of shared community patterns
+  // Real-time synchronization of universal shared community patterns
   useEffect(() => {
     setIsSyncing(true);
+    // Seed default pattern library into shared cloud if empty
+    seedDefaultPatternsIfNeeded(patternLibrary).catch(() => {});
+
     const unsub = subscribeToCloudPatterns((cloudPatterns) => {
       setIsSyncing(false);
-      if (cloudPatterns && cloudPatterns.length > 0) {
-        setCustomPatterns((prev) => {
-          const cloudIds = new Set(cloudPatterns.map((p) => p.id));
-          const localOnly = prev.filter((p) => !cloudIds.has(p.id));
-          // Sync any pre-existing local-only patterns to cloud
-          localOnly.forEach((pat) => {
-            savePatternToCloud(pat).catch((err) => {
-              console.error('Failed to sync pattern to cloud:', err);
-            });
-          });
-          return [...cloudPatterns, ...localOnly];
-        });
-      }
+      setCustomPatterns(cloudPatterns);
     });
 
     return () => {
@@ -147,7 +134,10 @@ export default function App() {
     };
   }, []);
 
-  const allPatterns = [...customPatterns, ...patternLibrary];
+  // Universal shared patterns: All cloud patterns + any defaults not yet in cloud
+  const cloudIds = new Set(customPatterns.map((p) => p.id));
+  const missingDefaults = patternLibrary.filter((p) => !cloudIds.has(p.id));
+  const allPatterns = [...customPatterns, ...missingDefaults];
 
   // Handle URL share parameters (?patId=xxx&stoken=yyy)
   useEffect(() => {
@@ -176,7 +166,7 @@ export default function App() {
         );
       }
     }
-  }, [customPatterns.length]);
+  }, [allPatterns.length]);
 
   const handleSelectPattern = (pattern: PatternData) => {
     const safePat: PatternData = {
@@ -190,7 +180,6 @@ export default function App() {
   };
 
   const handleSavePatternToLibrary = (newPattern: PatternData) => {
-    setCustomPatterns((prev) => [newPattern, ...prev]);
     setCurrentPattern(newPattern);
     setIsSyncing(true);
     savePatternToCloud(newPattern)
@@ -199,7 +188,6 @@ export default function App() {
   };
 
   const handleDeleteCustomPattern = (id: string) => {
-    setCustomPatterns((prev) => prev.filter((p) => p.id !== id));
     deletePatternFromCloud(id).catch((err) => {
       console.error('Cloud delete error:', err);
     });
@@ -382,7 +370,6 @@ export default function App() {
             onSelectPattern={handleSelectPattern}
             onSaveCurrentToLibrary={() => setIsSaveModalOpen(true)}
             onDeletePattern={handleDeleteCustomPattern}
-            currentAuthorId={currentAuthorId}
           />
         )}
 

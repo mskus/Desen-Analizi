@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PatternData, GuideBarId } from '../types';
-import { Search, CheckCircle2, ArrowRight, BookmarkPlus, Trash2, UserCheck, Share2, Copy, Check } from 'lucide-react';
+import { Search, CheckCircle2, ArrowRight, BookmarkPlus, Trash2, Share2, Copy, Check, Users } from 'lucide-react';
 import { PatternThumbnail } from './PatternThumbnail';
 import { createSharedPatternLink } from '../services/loggingService';
 
@@ -10,7 +10,6 @@ interface LibraryTabProps {
   onSelectPattern: (pattern: PatternData) => void;
   onSaveCurrentToLibrary: () => void;
   onDeletePattern?: (id: string) => void;
-  currentAuthorId?: string;
 }
 
 export const LibraryTab: React.FC<LibraryTabProps> = ({
@@ -19,7 +18,6 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   onSelectPattern,
   onSaveCurrentToLibrary,
   onDeletePattern,
-  currentAuthorId = '',
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Tümü');
@@ -27,11 +25,13 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
 
   const categories = [
     'Tümü',
+    'Halı & Zemin',
     'Bukle & Havlı',
     'Pelüş / Kadife',
     'Rölyef & Jakar',
     'Otomotiv Halısı',
-    'Özel',
+    'Teknik',
+    'Geometrik',
   ];
 
   const handleSharePattern = (pat: PatternData) => {
@@ -59,14 +59,20 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
     }
   };
 
+  const handleDeleteWithConfirm = (pat: PatternData) => {
+    if (!onDeletePattern) return;
+    const ok = window.confirm(`"${pat.title}" deseni ortak kütüphaneden silinsin mi?`);
+    if (ok) {
+      onDeletePattern(pat.id);
+    }
+  };
+
   const filteredPatterns = allPatterns.filter((pat) => {
-    const isUserPattern = pat.id.startsWith('user-pat-') || Boolean(pat.authorId);
     const matchesSearch =
       pat.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       pat.description.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory =
       selectedCategory === 'Tümü' ||
-      (selectedCategory === 'Özel' && isUserPattern) ||
       pat.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
@@ -98,7 +104,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
       {/* Merged Single-Row Filter, Search & Save Toolbar */}
       <section className="bg-[#111827] border border-slate-800 rounded-lg p-2 flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
-          <span className="text-xs font-bold text-white mr-1 hidden sm:inline">Kütüphane:</span>
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-950/60 border border-blue-800 text-blue-300 rounded text-xs font-bold mr-1">
+            <Users className="w-3.5 h-3.5" />
+            <span>Ortak Kütüphane</span>
+          </div>
           {categories.map((cat) => (
             <button
               key={cat}
@@ -122,7 +131,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Desen ara..."
+              placeholder="Ortak deseni ara..."
               className="w-full bg-[#0B0F17] border border-slate-700 rounded pl-8 pr-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -131,10 +140,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
             type="button"
             onClick={onSaveCurrentToLibrary}
             className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
-            title="Mevcut Çalışmayı Kütüphaneye Kaydet"
+            title="Mevcut Çalışmayı Ortak Kütüphaneye Kaydet"
           >
             <BookmarkPlus className="w-3.5 h-3.5" />
-            <span>Kaydet</span>
+            <span>Ortak Kaydet</span>
           </button>
         </div>
       </section>
@@ -158,10 +167,6 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
           {filteredPatterns.map((pat) => {
             const isActive = pat.id === currentPatternId;
-            const isOwner = Boolean(
-              (pat.authorId && currentAuthorId && pat.authorId === currentAuthorId) ||
-                pat.id.startsWith('user-pat-')
-            );
             const activeGbCount = Object.keys(pat.guideBars).filter(
               (k) => pat.guideBars[k as GuideBarId]?.active
             ).length;
@@ -182,15 +187,13 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex items-center justify-between text-[11px] text-slate-400">
                       <span className="font-semibold text-slate-300 truncate">{pat.category}</span>
-                      {isOwner && (
-                        <span
-                          className="text-[10px] bg-emerald-950/70 text-emerald-400 border border-emerald-800/60 px-1 py-0.2 rounded font-medium flex items-center gap-0.5 shrink-0"
-                          title="Sizin deseniniz"
-                        >
-                          <UserCheck className="w-2.5 h-2.5" />
-                          <span>Benim</span>
-                        </span>
-                      )}
+                      <span
+                        className="text-[10px] bg-blue-950/60 text-blue-400 border border-blue-800/60 px-1 py-0.2 rounded font-medium flex items-center gap-0.5 shrink-0"
+                        title="Tüm kullanıcıların erişebildiği ortak desen"
+                      >
+                        <Users className="w-2.5 h-2.5" />
+                        <span>Ortak</span>
+                      </span>
                     </div>
 
                     <h3 className="text-xs font-bold text-white tracking-tight truncate" title={pat.title}>
@@ -224,12 +227,12 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                       <span>Paylaş</span>
                     </button>
 
-                    {isOwner && onDeletePattern && (
+                    {onDeletePattern && (
                       <button
                         type="button"
-                        onClick={() => onDeletePattern(pat.id)}
+                        onClick={() => handleDeleteWithConfirm(pat)}
                         className="p-1.5 text-slate-400 hover:text-rose-400 bg-[#0B0F17] border border-slate-800 rounded transition-colors cursor-pointer"
-                        title="Deseni Sil"
+                        title="Ortak Kütüphaneden Sil"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

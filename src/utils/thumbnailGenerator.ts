@@ -139,5 +139,9 @@ export function generatePatternThumbnail(pattern: PatternData): string {
   ctx.lineWidth = 1;
   ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
 
+  try {
+    const webp = canvas.toDataURL('image/webp', 0.8);
+    if (webp && webp.startsWith('data:image/webp')) return webp;
+  } catch {}
   return canvas.toDataURL('image/png');
 }
