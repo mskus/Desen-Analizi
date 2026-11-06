@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PatternData } from '../types';
-import { X, Download, Upload, FileJson, FileSpreadsheet, Check, AlertCircle } from 'lucide-react';
+import { X, FileJson, FileSpreadsheet, Check, AlertCircle } from 'lucide-react';
 
 interface ExportImportModalProps {
   isOpen: boolean;
@@ -18,29 +18,40 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
   onImportPattern,
 }) => {
   const [importJsonText, setImportJsonText] = useState('');
-  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   if (!isOpen) return null;
 
   const exportJson = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentPattern, null, 2));
+    const dataStr =
+      'data:text/json;charset=utf-8,' +
+      encodeURIComponent(JSON.stringify(currentPattern, null, 2));
     const dlAnchor = document.createElement('a');
-    dlAnchor.setAttribute("href", dataStr);
-    dlAnchor.setAttribute("download", `${currentPattern.title.toLowerCase().replace(/\s+/g, '_')}_profile.json`);
+    dlAnchor.setAttribute('href', dataStr);
+    dlAnchor.setAttribute(
+      'download',
+      `${currentPattern.title.toLowerCase().replace(/\s+/g, '_')}_profil.json`
+    );
     document.body.appendChild(dlAnchor);
     dlAnchor.click();
     dlAnchor.remove();
   };
 
   const exportCsv = () => {
-    let csvContent = "data:text/csv;charset=utf-8,Course,GB1,GB2,GB3,GB4,GB5,GB6\r\n";
+    let csvContent = 'data:text/csv;charset=utf-8,Course,GB1,GB2,GB3,GB4,GB5,GB6\r\n';
     currentPattern.rows.forEach((r) => {
       csvContent += `${r.courseIndex},${r.GB1},${r.GB2},${r.GB3},${r.GB4},${r.GB5},${r.GB6}\r\n`;
     });
     const encodedUri = encodeURI(csvContent);
     const dlAnchor = document.createElement('a');
-    dlAnchor.setAttribute("href", encodedUri);
-    dlAnchor.setAttribute("download", `${currentPattern.title.toLowerCase().replace(/\s+/g, '_')}_table.csv`);
+    dlAnchor.setAttribute('href', encodedUri);
+    dlAnchor.setAttribute(
+      'download',
+      `${currentPattern.title.toLowerCase().replace(/\s+/g, '_')}_tablo.csv`
+    );
     document.body.appendChild(dlAnchor);
     dlAnchor.click();
     dlAnchor.remove();
@@ -50,102 +61,112 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
     setStatusMessage(null);
     try {
       if (!importJsonText.trim()) {
-        setStatusMessage({ type: 'error', text: 'Lütfen içe aktarılacak JSON verisini yapıştırın.' });
+        setStatusMessage({
+          type: 'error',
+          text: 'JSON verisini yapıştırın.',
+        });
         return;
       }
       const parsed = JSON.parse(importJsonText);
       if (parsed.id && parsed.title && parsed.rows) {
         onImportPattern(parsed);
-        setStatusMessage({ type: 'success', text: 'Desen profili başarıyla yüklendi!' });
+        setStatusMessage({
+          type: 'success',
+          text: 'Desen yüklendi.',
+        });
         setTimeout(() => {
           onClose();
-        }, 800);
+        }, 600);
       } else {
-        setStatusMessage({ type: 'error', text: 'Geçersiz desen formatı: "title" ve "rows" alanları zorunludur.' });
+        setStatusMessage({
+          type: 'error',
+          text: 'Geçersiz JSON formatı.',
+        });
       }
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: 'JSON ayrıştırma hatası: ' + err.message });
+      setStatusMessage({
+        type: 'error',
+        text: 'Hata: ' + err.message,
+      });
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-          <h3 className="text-lg font-bold text-white">
-            {mode === 'export' ? 'Desen ve Makine Profilini Dışa Aktar' : 'Desen Profilini İçe Aktar'}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3">
+      <div className="bg-[#111827] border border-slate-700 rounded-lg w-full max-w-md p-4 shadow-2xl space-y-3">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+          <h3 className="text-sm font-bold text-white">
+            {mode === 'export' ? 'Dosya İndir' : 'Dosya Yükle (JSON)'}
           </h3>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-950">
-            <X className="w-5 h-5" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-slate-400 hover:text-white rounded bg-[#0B0F17] border border-slate-800 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {statusMessage && (
           <div
-            className={`p-3 rounded-xl text-xs flex items-center space-x-2 border ${
+            className={`p-2 rounded text-xs font-semibold flex items-center gap-1.5 border ${
               statusMessage.type === 'success'
-                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
-                : 'bg-rose-950/60 border-rose-800 text-rose-300'
+                ? 'bg-emerald-950/80 border-emerald-700 text-emerald-200'
+                : 'bg-rose-950/80 border-rose-700 text-rose-200'
             }`}
           >
             {statusMessage.type === 'success' ? (
-              <Check className="w-4 h-4 shrink-0" />
+              <Check className="w-3.5 h-3.5 shrink-0" />
             ) : (
-              <AlertCircle className="w-4 h-4 shrink-0" />
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
             )}
             <span>{statusMessage.text}</span>
           </div>
         )}
 
         {mode === 'export' ? (
-          <div className="space-y-4">
-            <p className="text-sm text-slate-300 leading-relaxed">
-              Mevcut <strong className="text-white">{currentPattern.title}</strong> desen şablonunuzu, tarak ayarlarınızı ve makine parametrelerinizi JSON veya CSV formatında indirebilirsiniz.
-            </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={exportJson}
+              className="flex items-center justify-center gap-1.5 p-3 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 rounded-lg text-blue-400 font-semibold text-xs transition-colors cursor-pointer"
+            >
+              <FileJson className="w-4 h-4" />
+              <span>JSON İndir</span>
+            </button>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <button
-                onClick={exportJson}
-                className="flex items-center justify-center space-x-2 p-4 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/50 rounded-xl text-blue-400 font-semibold text-sm transition shadow"
-              >
-                <FileJson className="w-5 h-5" />
-                <span>JSON Profili İndir</span>
-              </button>
-
-              <button
-                onClick={exportCsv}
-                className="flex items-center justify-center space-x-2 p-4 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 rounded-xl text-emerald-400 font-semibold text-sm transition shadow"
-              >
-                <FileSpreadsheet className="w-5 h-5" />
-                <span>CSV Tablo İndir</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="flex items-center justify-center gap-1.5 p-3 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 rounded-lg text-emerald-400 font-semibold text-xs transition-colors cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>CSV İndir</span>
+            </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            <p className="text-sm text-slate-300">
-              Daha önce dışa aktardığınız desen JSON kodunu aşağıdaki alana yapıştırarak içe aktarın:
-            </p>
-
+          <div className="space-y-2.5">
             <textarea
               value={importJsonText}
               onChange={(e) => setImportJsonText(e.target.value)}
-              placeholder="JSON verisini buraya yapıştırın..."
-              className="w-full h-40 bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xs font-mono text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="JSON verisini yapıştırın..."
+              className="w-full h-32 bg-[#0B0F17] border border-slate-700 rounded p-2 text-xs font-mono text-white focus:outline-none focus:border-blue-500"
             />
 
-            <div className="flex justify-end space-x-3 pt-2">
+            <div className="flex justify-end gap-2">
               <button
+                type="button"
                 onClick={onClose}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-medium hover:bg-slate-700 transition"
+                className="px-3 py-1.5 bg-[#0B0F17] border border-slate-700 text-slate-300 rounded text-xs font-semibold hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 İptal
               </button>
               <button
+                type="button"
                 onClick={handleImportJson}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold shadow transition"
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
               >
-                İçe Aktar
+                Yükle
               </button>
             </div>
           </div>

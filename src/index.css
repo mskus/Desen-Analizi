@@ -1,1 +1,56 @@
 @import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: #0B0F17;
+    color: #F1F5F9;
+  }
+
+  code, pre, .font-mono, input[type="number"] {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+:fullscreen,
+:-webkit-full-screen {
+  overflow-y: auto !important;
+  height: 100vh !important;
+  background-color: #0B0F17 !important;
+}
+
+/* Custom Sleek Dark Theme Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #0B0F17;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0B0F17;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+  border: 1px solid #1e293b;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+::-webkit-scrollbar-corner {
+  background: #0B0F17;
+}
+

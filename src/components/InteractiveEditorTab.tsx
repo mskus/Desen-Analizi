@@ -1,30 +1,28 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { PatternData, PatternRow, GuideBarId, ActiveTab } from '../types';
 import {
   Plus,
+  Minus,
   Trash2,
   ZoomIn,
   ZoomOut,
-  Sparkles,
   Undo2,
   Redo2,
-  Sliders,
-  Table as TableIcon,
   Copy,
   ClipboardPaste,
   ShieldCheck,
   Check,
-  CopyPlus,
   Maximize2,
-  ShieldAlert,
-  Wand2,
+  Minimize2,
   Dices,
-  GripVertical
+  GripVertical,
+  Eye,
+  MoveHorizontal,
+  MoveVertical,
+  FlipVertical,
+  CopyPlus,
 } from 'lucide-react';
-import { VisualLoopToolbar, LoopToolMode } from './VisualLoopToolbar';
-import { QuickLoopPickerPopover } from './QuickLoopPickerPopover';
-import { LoopGlyph } from './LoopGlyph';
-import { analyzeCellLoop, autoFixInvalidRowCell, computeNeedleValueForLoop, LoopType, generateRandomPatternRows } from '../utils/loopEngine';
+import { calculateGuideBarMetrics, GuideBarCalcBadge } from '../utils/fabricCalculator';
 
 interface InteractiveEditorTabProps {
   pattern: PatternData;
@@ -38,6 +36,8 @@ interface InteractiveEditorTabProps {
   setActiveTab?: (tab: ActiveTab) => void;
   onToggleFullscreen?: () => void;
   isFullscreen?: boolean;
+  fabricWidthCm?: number;
+  onChangeFabricWidth?: (widthCm: number) => void;
 }
 
 const EDITOR_SETTINGS_KEY = 'warpknitt_editor_settings';
@@ -49,6 +49,8 @@ interface StoredEditorSettings {
   selectedGbForQuick?: GuideBarId;
   isAutoZoom?: boolean;
   zoom?: number;
+  previewRepeatX?: number;
+  previewRepeatY?: number;
 }
 
 const getInitialEditorSettings = (): StoredEditorSettings => {
@@ -69,23 +71,16 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   canUndo,
   canRedo,
   onOpenSafetySettings,
-  activeTab,
-  setActiveTab,
   onToggleFullscreen,
   isFullscreen,
+  fabricWidthCm = 410,
+  onChangeFabricWidth,
 }) => {
   const savedEditorSettings = getInitialEditorSettings();
 
   const [activeGbId, setActiveGbId] = useState<GuideBarId>(
     savedEditorSettings.activeGbId || 'GB3'
   );
-  const [activeToolMode, setActiveToolMode] = useState<LoopToolMode>('select');
-  const [popover, setPopover] = useState<{
-    isOpen: boolean;
-    position: { x: number; y: number } | null;
-    rowIndex: number;
-    gbId: GuideBarId;
-  } | null>(null);
 
   const canvasCardRef = useRef<HTMLDivElement | null>(null);
   const tableCardRef = useRef<HTMLDivElement | null>(null);
@@ -125,11 +120,16 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   );
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [copiedRow, setCopiedRow] = useState<PatternRow | null>(null);
-
-  // Drag & drop course reordering state
   const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
 
-  // Floating Movable & Resizable Windows-Style Preview Window state
+  const [previewRepeatX, setPreviewRepeatX] = useState<number>(
+    savedEditorSettings.previewRepeatX ?? 1
+  );
+  const [previewRepeatY, setPreviewRepeatY] = useState<number>(
+    savedEditorSettings.previewRepeatY ?? 1
+  );
+
+  // Persisted Floating Preview Window (Position & Size saved across page/tab changes)
   const [previewWindow, setPreviewWindow] = useState<{
     x: number;
     y: number;
@@ -139,16 +139,45 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     isResizing: boolean;
     dragOffset: { x: number; y: number };
     resizeStart: { w: number; h: number; x: number; y: number };
-  }>(() => ({
-    x: typeof window !== 'undefined' ? Math.max(20, window.innerWidth - 270) : 20,
-    y: typeof window !== 'undefined' ? Math.max(20, window.innerHeight - 240) : 20,
-    width: 240,
-    height: 150,
-    isDragging: false,
-    isResizing: false,
-    dragOffset: { x: 0, y: 0 },
-    resizeStart: { w: 240, h: 150, x: 0, y: 0 },
-  }));
+  }>(() => {
+    const defaultX = typeof window !== 'undefined' ? Math.max(20, window.innerWidth - 300) : 20;
+    const defaultY = typeof window !== 'undefined' ? Math.max(20, window.innerHeight - 260) : 20;
+    let savedWin: any = null;
+    if (typeof window !== 'undefined') {
+      try {
+        const item = localStorage.getItem('warpknitt_pref_preview_window');
+        if (item) savedWin = JSON.parse(item);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return {
+      x: savedWin?.x ?? defaultX,
+      y: savedWin?.y ?? defaultY,
+      width: savedWin?.width ?? 280,
+      height: savedWin?.height ?? 200,
+      isDragging: false,
+      isResizing: false,
+      dragOffset: { x: 0, y: 0 },
+      resizeStart: { w: 280, h: 200, x: 0, y: 0 },
+    };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'warpknitt_pref_preview_window',
+        JSON.stringify({
+          x: previewWindow.x,
+          y: previewWindow.y,
+          width: previewWindow.width,
+          height: previewWindow.height,
+        })
+      );
+    } catch (e) {
+      console.error(e);
+    }
+  }, [previewWindow.x, previewWindow.y, previewWindow.width, previewWindow.height]);
 
   const handleStartDragPreview = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -182,16 +211,22 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       if (previewWindow.isDragging) {
         setPreviewWindow((prev) => ({
           ...prev,
-          x: Math.max(10, Math.min(window.innerWidth - prev.width - 10, e.clientX - prev.dragOffset.x)),
-          y: Math.max(10, Math.min(window.innerHeight - prev.height - 10, e.clientY - prev.dragOffset.y)),
+          x: Math.max(
+            10,
+            Math.min(window.innerWidth - prev.width - 10, e.clientX - prev.dragOffset.x)
+          ),
+          y: Math.max(
+            10,
+            Math.min(window.innerHeight - prev.height - 10, e.clientY - prev.dragOffset.y)
+          ),
         }));
       } else if (previewWindow.isResizing) {
         const dw = e.clientX - previewWindow.resizeStart.x;
         const dh = e.clientY - previewWindow.resizeStart.y;
         setPreviewWindow((prev) => ({
           ...prev,
-          width: Math.max(160, Math.min(600, prev.resizeStart.w + dw)),
-          height: Math.max(110, Math.min(450, prev.resizeStart.h + dh)),
+          width: Math.max(180, Math.min(640, prev.resizeStart.w + dw)),
+          height: Math.max(120, Math.min(480, prev.resizeStart.h + dh)),
         }));
       }
     };
@@ -214,9 +249,13 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [previewWindow.isDragging, previewWindow.isResizing, previewWindow.dragOffset, previewWindow.resizeStart]);
+  }, [
+    previewWindow.isDragging,
+    previewWindow.isResizing,
+    previewWindow.dragOffset,
+    previewWindow.resizeStart,
+  ]);
 
-  // Dragging state
   const draggingRef = useRef<{
     courseIdx: number;
     gbId: GuideBarId;
@@ -236,7 +275,6 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     y: number;
   } | null>(null);
 
-  // Touch pinch-to-zoom ref
   const touchDistRef = useRef<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -244,35 +282,73 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const liveFabricCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  const [editorNeedles, setEditorNeedles] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('warpknitt_editor_needle_count');
+      if (saved) return Math.max(8, Math.min(96, parseInt(saved, 10)));
+    } catch (e) {}
+    return 32;
+  });
+
+  const [editorNeedlesInputText, setEditorNeedlesInputText] = useState<string>(String(editorNeedles));
+
+  useEffect(() => {
+    setEditorNeedlesInputText(String(editorNeedles));
+  }, [editorNeedles]);
+
+  useEffect(() => {
+    localStorage.setItem('warpknitt_editor_needle_count', editorNeedles.toString());
+  }, [editorNeedles]);
+
   const rows = pattern.rows;
-  const needleCols = Math.max(16, Math.min(32, (pattern.safety?.maxAllowedNeedleNumber || 18) + 1));
-  const needlePitch = 40;
-  const coursePitch = 48;
+  // Independent Live Drag-and-Drop needle count (max 96 needles)
+  const needleCols = editorNeedles;
+  const needlePitch = needleCols > 64 ? 18 : needleCols > 32 ? 26 : 38;
+  const coursePitch = 46;
 
   const activeBars = (Object.keys(pattern.guideBars) as GuideBarId[]).filter(
     (id) => pattern.guideBars[id].active
   );
 
-  const startX = 65;
-  const startY = 65;
-  const canvasWidth = needleCols * needlePitch + 160;
-  const canvasHeight = Math.max(480, rows.length * coursePitch + 120);
+  // Guide Bar Calculation Engine: Fabric width, needle limit, threading repeat, and report repeat counts
+  const guideBarCalculations = useMemo(() => {
+    const map: Partial<Record<GuideBarId, ReturnType<typeof calculateGuideBarMetrics>>> = {};
+    activeBars.forEach((id) => {
+      const gb = pattern.guideBars[id];
+      if (gb) {
+        map[id] = calculateGuideBarMetrics(
+          id,
+          gb,
+          rows,
+          pattern.machine,
+          pattern.safety,
+          fabricWidthCm
+        );
+      }
+    });
+    return map;
+  }, [activeBars, pattern.guideBars, rows, pattern.machine, pattern.safety, fabricWidthCm]);
+
+  // Equal, tight left and right margins (36px left, 36px right)
+  const startX = 36;
+  const startY = 48;
+  const canvasWidth = (needleCols - 1) * needlePitch + startX * 2;
+  const canvasHeight = Math.max(420, startY + rows.length * coursePitch + 28);
 
   const showMsg = (msg: string) => {
     setActionMsg(msg);
-    setTimeout(() => setActionMsg(null), 2000);
+    setTimeout(() => setActionMsg(null), 2200);
   };
 
-  // Fit to screen height auto calculation (*Sığdır dikey olmalı)
   const calculateEditorFitZoom = useCallback(() => {
     if (!isAutoZoom) return;
     const container = containerRef.current;
     if (!container) return;
 
-    const availHeight = container.clientHeight > 0 ? container.clientHeight - 20 : 500;
+    const availHeight = container.clientHeight > 0 ? container.clientHeight - 16 : 460;
     if (availHeight > 0 && canvasHeight > 0) {
       const fit = availHeight / canvasHeight;
-      const clamped = Math.max(0.4, Math.min(1.5, Math.floor(fit * 100) / 100));
+      const clamped = Math.max(0.35, Math.min(1.5, Math.floor(fit * 100) / 100));
       setZoom(clamped);
     }
   }, [isAutoZoom, canvasHeight]);
@@ -288,7 +364,6 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, [isAutoZoom, calculateEditorFitZoom]);
 
-  // Save settings to localStorage
   useEffect(() => {
     const settingsToSave: StoredEditorSettings = {
       activeGbId,
@@ -297,6 +372,8 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       selectedGbForQuick,
       isAutoZoom,
       zoom,
+      previewRepeatX,
+      previewRepeatY,
     };
     localStorage.setItem(EDITOR_SETTINGS_KEY, JSON.stringify(settingsToSave));
   }, [
@@ -306,9 +383,10 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     selectedGbForQuick,
     isAutoZoom,
     zoom,
+    previewRepeatX,
+    previewRepeatY,
   ]);
 
-  // Touch Pinch-to-Zoom logic
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
       const dist = Math.hypot(
@@ -329,7 +407,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       if (Math.abs(delta) > 8) {
         const zoomFactor = delta > 0 ? 0.04 : -0.04;
         setIsAutoZoom(false);
-        setZoom((prev) => Math.max(0.4, Math.min(2.2, prev + zoomFactor)));
+        setZoom((prev) => Math.max(0.35, Math.min(2.2, prev + zoomFactor)));
         touchDistRef.current = newDist;
       }
     }
@@ -339,29 +417,34 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     touchDistRef.current = null;
   };
 
-  const getNeedleFromClientX = useCallback((clientX: number): number => {
-    const canvas = canvasRef.current;
-    if (!canvas) return 0;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const xInCanvas = (clientX - rect.left) * scaleX;
-    const relativeX = xInCanvas - startX;
-    const nearestNeedle = Math.round(relativeX / needlePitch);
-    return Math.max(0, Math.min(needleCols - 1, nearestNeedle));
-  }, [canvasRef, needleCols, needlePitch, startX]);
+  const getNeedleFromClientX = useCallback(
+    (clientX: number): number => {
+      const canvas = canvasRef.current;
+      if (!canvas) return 0;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const xInCanvas = (clientX - rect.left) * scaleX;
+      const relativeX = xInCanvas - startX;
+      const nearestNeedle = Math.round(relativeX / needlePitch);
+      return Math.max(0, Math.min(needleCols - 1, nearestNeedle));
+    },
+    [needleCols, needlePitch, startX]
+  );
 
-  const getCourseFromClientY = useCallback((clientY: number): number => {
-    const canvas = canvasRef.current;
-    if (!canvas) return 0;
-    const rect = canvas.getBoundingClientRect();
-    const scaleY = canvas.height / rect.height;
-    const yInCanvas = (clientY - rect.top) * scaleY;
-    const relativeY = yInCanvas - startY;
-    const nearestCourse = Math.floor(relativeY / coursePitch);
-    return Math.max(0, Math.min(rows.length - 1, nearestCourse));
-  }, [canvasRef, coursePitch, rows.length, startY]);
+  const getCourseFromClientY = useCallback(
+    (clientY: number): number => {
+      const canvas = canvasRef.current;
+      if (!canvas) return 0;
+      const rect = canvas.getBoundingClientRect();
+      const scaleY = canvas.height / rect.height;
+      const yInCanvas = (clientY - rect.top) * scaleY;
+      const relativeY = yInCanvas - startY;
+      const nearestCourse = Math.floor(relativeY / coursePitch);
+      return Math.max(0, Math.min(rows.length - 1, nearestCourse));
+    },
+    [coursePitch, rows.length, startY]
+  );
 
-  // Color helper for column soft tints
   const getSoftColorBg = (hexColor: string, alpha = 0.12) => {
     if (hexColor && hexColor.startsWith('#')) {
       const hex = hexColor.replace('#', '');
@@ -373,7 +456,6 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     return 'transparent';
   };
 
-  // Draw Point Paper Grid & Guide Bars
   const drawEditorCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -387,45 +469,51 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
 
     const currentDrag = draggingRef.current || draggingNode;
 
-    // 1. Needles Header & Vertical Wale Lines
-    ctx.font = 'bold 11px monospace';
+    ctx.font = 'bold 11px "JetBrains Mono", monospace';
     ctx.textAlign = 'center';
 
     for (let n = 0; n < needleCols; n++) {
       const nx = startX + n * needlePitch;
-      const isHovered = (currentDrag && currentDrag.currentNeedle === n) || (hoverInfo && hoverInfo.needle === n);
+      const isHovered =
+        (currentDrag && currentDrag.currentNeedle === n) ||
+        (hoverInfo && hoverInfo.needle === n);
 
-      ctx.fillStyle = isHovered ? '#38bdf8' : '#64748b';
-      ctx.fillText(`İ${n}`, nx, startY - 20);
+      ctx.fillStyle = isHovered ? '#38bdf8' : '#94a3b8';
+      ctx.fillText(`İ${n}`, nx, startY - 18);
 
       ctx.strokeStyle = isHovered ? '#0284c7' : '#1e293b';
       ctx.lineWidth = isHovered ? 1.5 : 1;
       ctx.beginPath();
       ctx.moveTo(nx, startY - 8);
-      ctx.lineTo(nx, startY + rows.length * coursePitch + 10);
+      ctx.lineTo(nx, startY + rows.length * coursePitch + 8);
       ctx.stroke();
     }
 
-    // 2. Course Lines
     for (let c = 0; c <= rows.length; c++) {
       const cy = startY + c * coursePitch;
-      ctx.strokeStyle = '#0f172a';
+      ctx.strokeStyle = '#1e293b';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(startX - 15, cy);
-      ctx.lineTo(startX + (needleCols - 1) * needlePitch + 15, cy);
+      ctx.moveTo(startX - 10, cy);
+      ctx.lineTo(startX + (needleCols - 1) * needlePitch + 10, cy);
       ctx.stroke();
 
+      // Draw Course labels on both left and right for visual symmetry
       if (c < rows.length) {
         ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 10px monospace';
+        ctx.font = 'bold 10px "JetBrains Mono", monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(`K${c + 1}`, startX - 22, cy + coursePitch / 2 + 4);
+        ctx.fillText(`K${c + 1}`, startX - 12, cy + coursePitch / 2 + 4);
+        ctx.textAlign = 'left';
+        ctx.fillText(
+          `K${c + 1}`,
+          startX + (needleCols - 1) * needlePitch + 12,
+          cy + coursePitch / 2 + 4
+        );
       }
     }
 
-    // 3. Trick Points - Batched for 60 FPS
-    ctx.fillStyle = '#1e293b';
+    ctx.fillStyle = '#334155';
     ctx.beginPath();
     for (let c = 0; c < rows.length; c++) {
       const cy = startY + c * coursePitch + coursePitch / 2;
@@ -437,42 +525,44 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     }
     ctx.fill();
 
-    // 4. Guide Bar Paths
     activeBars.forEach((gbId) => {
       const gb = pattern.guideBars[gbId];
       const isSelected = activeGbId === gbId;
 
-      ctx.strokeStyle = gb.color;
-      ctx.lineWidth = isSelected ? 3.5 : 1.5;
-      ctx.globalAlpha = isSelected ? 1 : 0.4;
-
-      ctx.beginPath();
-      rows.forEach((row, rIdx) => {
+      // 1. Yarn path across courses: connected curves, subtly transparent if skipped
+      for (let rIdx = 1; rIdx < rows.length; rIdx++) {
+        const row = rows[rIdx];
+        const prevRow = rows[rIdx - 1];
         let needleVal = row[gbId] || 0;
+        let prevVal = prevRow[gbId] || 0;
+
         if (currentDrag && currentDrag.courseIdx === rIdx && currentDrag.gbId === gbId) {
           needleVal = currentDrag.currentNeedle;
+        }
+        if (currentDrag && currentDrag.courseIdx === rIdx - 1 && currentDrag.gbId === gbId) {
+          prevVal = currentDrag.currentNeedle;
         }
 
         const px = startX + needleVal * needlePitch;
         const py = startY + rIdx * coursePitch + coursePitch / 2;
+        const prevX = startX + prevVal * needlePitch;
+        const prevY = startY + (rIdx - 1) * coursePitch + coursePitch / 2;
+        const cpY = (prevY + py) / 2;
 
-        if (rIdx === 0) ctx.moveTo(px, py);
-        else {
-          const prevRow = rows[rIdx - 1];
-          let prevVal = prevRow[gbId] || 0;
-          if (currentDrag && currentDrag.courseIdx === rIdx - 1 && currentDrag.gbId === gbId) {
-            prevVal = currentDrag.currentNeedle;
-          }
-          const prevX = startX + prevVal * needlePitch;
-          const prevY = startY + (rIdx - 1) * coursePitch + coursePitch / 2;
-          const cpY = (prevY + py) / 2;
-          ctx.bezierCurveTo(prevX, cpY, px, cpY, px, py);
-        }
-      });
-      ctx.stroke();
-      ctx.globalAlpha = 1;
+        const isSkipped = row.skips?.[gbId] ?? false;
 
-      // Nodes
+        ctx.save();
+        ctx.strokeStyle = gb.color;
+        ctx.lineWidth = isSelected ? (isSkipped ? 2.5 : 3.5) : (isSkipped ? 1.0 : 1.5);
+        ctx.globalAlpha = isSkipped ? 0.35 : isSelected ? 1.0 : 0.45;
+        ctx.beginPath();
+        ctx.moveTo(prevX, prevY);
+        ctx.lineTo(px, py);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 2. Draw Nodes / Circles (with clean white border & specular highlight dot)
       rows.forEach((row, rIdx) => {
         let needleVal = row[gbId] || 0;
         const isDraggingThis = currentDrag && currentDrag.courseIdx === rIdx && currentDrag.gbId === gbId;
@@ -480,20 +570,44 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
 
         const px = startX + needleVal * needlePitch;
         const py = startY + rIdx * coursePitch + coursePitch / 2;
+        const isSkipped = row.skips?.[gbId] ?? false;
+        const nodeRadius = isSelected ? 7.5 : 4.5;
+
+        ctx.save();
+        ctx.globalAlpha = isSkipped ? 0.35 : 1.0;
 
         ctx.beginPath();
-        ctx.arc(px, py, isSelected ? 8 : 4.5, 0, Math.PI * 2);
+        ctx.arc(px, py, nodeRadius, 0, Math.PI * 2);
         ctx.fillStyle = gb.color;
         ctx.fill();
+
         ctx.strokeStyle = isDraggingThis ? '#38bdf8' : '#ffffff';
-        ctx.lineWidth = isDraggingThis ? 2.5 : 1;
+        ctx.lineWidth = isDraggingThis ? 2.5 : 1.2;
         ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(px - nodeRadius * 0.3, py - nodeRadius * 0.3, Math.max(1, nodeRadius * 0.28), 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fill();
+
+        ctx.restore();
       });
     });
+  }, [
+    rows,
+    activeBars,
+    activeGbId,
+    draggingNode,
+    needleCols,
+    coursePitch,
+    needlePitch,
+    startX,
+    startY,
+    hoverInfo,
+    pattern.guideBars,
+  ]);
 
-  }, [rows, activeBars, activeGbId, draggingNode, needleCols, coursePitch, needlePitch, startX, startY, hoverInfo]);
-
-  // Preview Canvas
+  // Mini Floating Preview Window: Simplified High-Performance Fabric Surface Simulation
   const drawPreviewCanvas = useCallback(() => {
     if (!isLivePreviewOpen) return;
     const canvas = previewCanvasRef.current;
@@ -502,35 +616,102 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#0a0f1e';
+    ctx.fillStyle = '#070b14';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const prevStartX = 15;
-    const prevStartY = 20;
-    const prevPitchX = Math.min(16, (canvas.width - 30) / needleCols);
-    const prevPitchY = Math.min(18, (canvas.height - 30) / rows.length);
+    const prevPadX = 12;
+    const prevPadY = 12;
+    const totalNeedles = Math.max(1, needleCols * previewRepeatX);
+    const totalCourses = Math.max(1, rows.length * previewRepeatY);
+    const prevPitchX = (canvas.width - prevPadX * 2) / Math.max(1, totalNeedles - 1);
+    const prevPitchY = (canvas.height - prevPadY * 2) / Math.max(1, totalCourses - 1);
     const currentDrag = draggingRef.current || draggingNode;
 
+    // Draw subtle vertical needle wale guides
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let n = 0; n < totalNeedles; n += 2) {
+      const nx = prevPadX + n * prevPitchX;
+      ctx.moveTo(nx, prevPadY);
+      ctx.lineTo(nx, canvas.height - prevPadY);
+    }
+    ctx.stroke();
+
+    // Render all threaded needles for each active guide bar
     activeBars.forEach((gbId) => {
       const gb = pattern.guideBars[gbId];
-      ctx.strokeStyle = gb.color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      rows.forEach((row, rIdx) => {
-        let needleVal = row[gbId] || 0;
-        if (currentDrag && currentDrag.courseIdx === rIdx && currentDrag.gbId === gbId) {
-          needleVal = currentDrag.currentNeedle;
-        }
-        const px = prevStartX + needleVal * prevPitchX;
-        const py = prevStartY + rIdx * prevPitchY;
-        if (rIdx === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      });
-      ctx.stroke();
-    });
-  }, [rows, activeBars, draggingNode, isLivePreviewOpen, needleCols]);
+      if (!gb) return;
+      const isSelected = activeGbId === gbId;
+      const threadingArr =
+        gb.threadingArray || Array.from({ length: needleCols }, (_, i) => i % 2 === 0);
 
-  // Live Fabric Simulation Canvas Draw (INSTANT REAL-TIME REFLECTION WHILE DRAGGING)
+      for (let g = 0; g < totalNeedles; g++) {
+        const baseG = g % needleCols;
+        if (!threadingArr[baseG]) continue;
+
+        for (let repY = 0; repY < previewRepeatY; repY++) {
+          rows.forEach((row, rIdx) => {
+            const c = repY * rows.length + rIdx;
+            let shift = row[gbId] || 0;
+            if (currentDrag && currentDrag.courseIdx === rIdx && currentDrag.gbId === gbId) {
+              shift = currentDrag.currentNeedle;
+            }
+            const actualNeedle = g + shift;
+
+            if (actualNeedle >= 0 && actualNeedle < totalNeedles) {
+              const x = prevPadX + actualNeedle * prevPitchX;
+              const y = prevPadY + c * prevPitchY;
+
+              if (c > 0) {
+                const prevRow = rIdx === 0 ? rows[rows.length - 1] : rows[rIdx - 1];
+                let prevShift = prevRow[gbId] || 0;
+                if (
+                  currentDrag &&
+                  currentDrag.courseIdx === (rIdx === 0 ? rows.length - 1 : rIdx - 1) &&
+                  currentDrag.gbId === gbId
+                ) {
+                  prevShift = currentDrag.currentNeedle;
+                }
+                const prevNeedle = g + prevShift;
+                if (prevNeedle >= 0 && prevNeedle < totalNeedles) {
+                  const prevX = prevPadX + prevNeedle * prevPitchX;
+                  const prevY = prevPadY + (c - 1) * prevPitchY;
+
+                  const isSkipped = row.skips?.[gbId] ?? false;
+
+                  ctx.save();
+                  ctx.strokeStyle = gb.color;
+                  ctx.lineWidth = isSelected ? (isSkipped ? 1.2 : 2.2) : (isSkipped ? 0.8 : 1.5);
+                  ctx.globalAlpha = isSkipped ? 0.20 : isSelected ? 0.95 : 0.65;
+                  if (isSkipped) {
+                    ctx.setLineDash([3, 3]);
+                  }
+
+                  ctx.beginPath();
+                  ctx.moveTo(prevX, prevY);
+                  ctx.lineTo(x, y);
+                  ctx.stroke();
+                  ctx.restore();
+                }
+              }
+            }
+          });
+        }
+      }
+    });
+  }, [
+    rows,
+    activeBars,
+    activeGbId,
+    draggingNode,
+    isLivePreviewOpen,
+    needleCols,
+    previewRepeatX,
+    previewRepeatY,
+    pattern.guideBars,
+  ]);
+
   const drawLiveFabricCanvas = useCallback(() => {
     if (!showLiveFabricCard) return;
     const canvas = liveFabricCanvasRef.current;
@@ -540,28 +721,33 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Background
     const bg = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
     bg.addColorStop(0, '#0a0f1e');
     bg.addColorStop(1, '#05070d');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const fabStartX = 40;
-    const fabStartY = 35;
-    const fabPitchX = Math.min(28, (canvas.width - 80) / needleCols);
-    const fabPitchY = Math.min(28, (canvas.height - 60) / Math.max(1, rows.length * 2));
+    const fabStartX = 36;
+    const fabStartY = 24;
+    const fabPitchX = (canvas.width - fabStartX * 2) / Math.max(1, needleCols - 1);
+    const fabPitchY = Math.min(26, (canvas.height - 44) / Math.max(1, rows.length * 2));
     const currentDrag = draggingRef.current || draggingNode;
 
-    // Draw active guide bar loops
     activeBars.forEach((gbId) => {
       const gb = pattern.guideBars[gbId];
       if (!gb) return;
 
-      const threadingArr = gb.threadingArray || Array.from({ length: needleCols }, (_, i) => i % 2 === 0);
+      const threadingArr =
+        gb.threadingArray || Array.from({ length: needleCols }, (_, i) => i % 2 === 0);
+
+      ctx.save();
+      ctx.strokeStyle = gb.color;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
 
       for (let g = 0; g < needleCols; g++) {
-        if (!threadingArr[g]) continue; // Boş ise iplik yok
+        if (!threadingArr[g]) continue;
 
         for (let rep = 0; rep < 2; rep++) {
           rows.forEach((row, rIdx) => {
@@ -579,15 +765,21 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
               if (c > 0) {
                 const prevRow = rIdx === 0 ? rows[rows.length - 1] : rows[rIdx - 1];
                 let prevShift = prevRow[gbId] || 0;
-                if (currentDrag && currentDrag.courseIdx === (rIdx === 0 ? rows.length - 1 : rIdx - 1) && currentDrag.gbId === gbId) {
+                if (
+                  currentDrag &&
+                  currentDrag.courseIdx === (rIdx === 0 ? rows.length - 1 : rIdx - 1) &&
+                  currentDrag.gbId === gbId
+                ) {
                   prevShift = currentDrag.currentNeedle;
                 }
                 const prevNeedle = g + prevShift;
-                const prevX = fabStartX + prevNeedle * fabPitchX;
-                const prevY = fabStartY + (c - 1) * fabPitchY;
+                if (prevNeedle >= 0 && prevNeedle < needleCols) {
+                  const prevX = fabStartX + prevNeedle * fabPitchX;
+                  const prevY = fabStartY + (c - 1) * fabPitchY;
 
-                ctx.moveTo(prevX, prevY);
-                ctx.quadraticCurveTo((prevX + x) / 2, (prevY + y) / 2, x, y);
+                  ctx.moveTo(prevX, prevY);
+                  ctx.quadraticCurveTo((prevX + x) / 2, (prevY + y) / 2, x, y);
+                }
               }
             }
           });
@@ -595,53 +787,24 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       }
       ctx.stroke();
       ctx.restore();
-
-      // Batch draw loop nodes
-      ctx.save();
-      ctx.fillStyle = gb.color;
-      ctx.shadowColor = gb.color;
-      ctx.shadowBlur = 4;
-      ctx.beginPath();
-      for (let g = 0; g < needleCols; g++) {
-        if (!threadingArr[g]) continue;
-        for (let rep = 0; rep < 2; rep++) {
-          rows.forEach((row, rIdx) => {
-            const c = rep * rows.length + rIdx;
-            let shift = row[gbId] || 0;
-            if (currentDrag && currentDrag.courseIdx === rIdx && currentDrag.gbId === gbId) {
-              shift = currentDrag.currentNeedle;
-            }
-            const targetNeedle = g + shift;
-            if (targetNeedle >= 0 && targetNeedle < needleCols) {
-              const x = fabStartX + targetNeedle * fabPitchX;
-              const y = fabStartY + c * fabPitchY;
-              ctx.moveTo(x + 4, y);
-              ctx.arc(x, y, 4, 0, Math.PI * 2);
-            }
-          });
-        }
-      }
-      ctx.fill();
-      ctx.restore();
     });
   }, [rows, activeBars, draggingNode, showLiveFabricCard, needleCols, pattern.guideBars]);
 
   useEffect(() => {
-    let animId = requestAnimationFrame(() => {
+    const animId = requestAnimationFrame(() => {
       drawEditorCanvas();
     });
     return () => cancelAnimationFrame(animId);
   }, [drawEditorCanvas]);
 
   useEffect(() => {
-    let animId = requestAnimationFrame(() => {
+    const animId = requestAnimationFrame(() => {
       drawPreviewCanvas();
       drawLiveFabricCanvas();
     });
     return () => cancelAnimationFrame(animId);
-  }, [drawPreviewCanvas, drawLiveFabricCanvas]);
+  }, [drawPreviewCanvas, drawLiveFabricCanvas, previewWindow.width, previewWindow.height]);
 
-  // Pointer event handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const courseIdx = getCourseFromClientY(e.clientY);
@@ -653,9 +816,11 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
 
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
-    } catch (err) {}
+    } catch {}
 
-    const updated = rows.map((r, idx) => (idx === courseIdx ? { ...r, [activeGbId]: targetNeedle } : r));
+    const updated = rows.map((r, idx) =>
+      idx === courseIdx ? { ...r, [activeGbId]: targetNeedle } : r
+    );
     onChangeRows(updated);
   };
 
@@ -664,7 +829,13 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     const needle = getNeedleFromClientX(e.clientX);
 
     setHoverInfo((prev) => {
-      if (prev && prev.courseIdx === courseIdx && prev.needle === needle && Math.abs(prev.x - e.clientX) < 6 && Math.abs(prev.y - e.clientY) < 6) {
+      if (
+        prev &&
+        prev.courseIdx === courseIdx &&
+        prev.needle === needle &&
+        Math.abs(prev.x - e.clientX) < 6 &&
+        Math.abs(prev.y - e.clientY) < 6
+      ) {
         return prev;
       }
       return { courseIdx, needle, x: e.clientX, y: e.clientY };
@@ -676,7 +847,9 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       setDraggingNode({ ...draggingRef.current });
       const dragCourse = draggingRef.current.courseIdx;
       const dragGb = draggingRef.current.gbId;
-      const updated = rows.map((r, idx) => (idx === dragCourse ? { ...r, [dragGb]: needle } : r));
+      const updated = rows.map((r, idx) =>
+        idx === dragCourse ? { ...r, [dragGb]: needle } : r
+      );
       onChangeRows(updated);
     }
   };
@@ -686,23 +859,51 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
-    } catch (err) {}
+    } catch {}
 
     const drag = draggingRef.current || draggingNode;
     if (drag) {
       const { courseIdx, gbId, currentNeedle } = drag;
-      const updated = rows.map((r, idx) => (idx === courseIdx ? { ...r, [gbId]: currentNeedle } : r));
+      const updated = rows.map((r, idx) =>
+        idx === courseIdx ? { ...r, [gbId]: currentNeedle } : r
+      );
       onChangeRows(updated);
     }
     draggingRef.current = null;
     setDraggingNode(null);
   };
 
-  // Actions
+  const handleDoubleClickCanvas = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const courseIdx = getCourseFromClientY(e.clientY);
+    const updated = rows.map((r, idx) => {
+      if (idx === courseIdx) {
+        const currentSkips = r.skips || {};
+        const nextVal = !currentSkips[activeGbId];
+        return {
+          ...r,
+          skips: {
+            ...currentSkips,
+            [activeGbId]: nextVal,
+          },
+        };
+      }
+      return r;
+    });
+    onChangeRows(updated);
+  };
+
   const addRow = () => {
-    const lastRow = rows[rows.length - 1] || { GB1: 0, GB2: 0, GB3: 0, GB4: 0, GB5: 0, GB6: 0 };
+    const lastRow = rows[rows.length - 1] || {
+      GB1: 0,
+      GB2: 0,
+      GB3: 0,
+      GB4: 0,
+      GB5: 0,
+      GB6: 0,
+    };
     const newRow: PatternRow = {
-      id: 'row-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+      id: 'row-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       courseIndex: rows.length + 1,
       GB1: lastRow.GB1,
       GB2: lastRow.GB2,
@@ -712,6 +913,16 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       GB6: lastRow.GB6,
     };
     onChangeRows([...rows, newRow]);
+  };
+
+  const deleteLastRow = () => {
+    if (rows.length <= 1) return;
+    const lastCourseNum = rows[rows.length - 1]?.courseIndex || rows.length;
+    const updated = rows
+      .slice(0, rows.length - 1)
+      .map((r, i) => ({ ...r, courseIndex: i + 1 }));
+    onChangeRows(updated);
+    showMsg(`Son kurs (K${lastCourseNum}) silindi.`);
   };
 
   const insertRowAfter = (rIdx: number) => {
@@ -728,7 +939,11 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     };
     const updated = [...rows];
     updated.splice(rIdx + 1, 0, newRow);
-    const reindexed = updated.map((r, i) => ({ ...r, courseIndex: i + 1, stepIndex: i + 1 }));
+    const reindexed = updated.map((r, i) => ({
+      ...r,
+      courseIndex: i + 1,
+      stepIndex: i + 1,
+    }));
     onChangeRows(reindexed);
   };
 
@@ -737,31 +952,37 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     const updated = [...rows];
     const [moved] = updated.splice(fromIndex, 1);
     updated.splice(toIndex, 0, moved);
-    const reindexed = updated.map((r, i) => ({ ...r, courseIndex: i + 1, stepIndex: i + 1 }));
+    const reindexed = updated.map((r, i) => ({
+      ...r,
+      courseIndex: i + 1,
+      stepIndex: i + 1,
+    }));
     onChangeRows(reindexed);
   };
 
   const deleteRow = (index: number) => {
     if (rows.length <= 1) return;
-    const updated = rows.filter((_, i) => i !== index).map((r, i) => ({ ...r, courseIndex: i + 1 }));
+    const updated = rows
+      .filter((_, i) => i !== index)
+      .map((r, i) => ({ ...r, courseIndex: i + 1 }));
     onChangeRows(updated);
-    showMsg('Satır silindi.');
+    showMsg('Kurs satırı silindi.');
   };
 
   const copyRow = (row: PatternRow) => {
     setCopiedRow(row);
-    showMsg(`K${row.courseIndex} kopyalandı.`);
+    showMsg(`K${row.courseIndex} satırı kopyalandı.`);
   };
 
   const pasteRow = () => {
     if (!copiedRow) return;
     const newRow: PatternRow = {
       ...copiedRow,
-      id: 'paste-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+      id: 'paste-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       courseIndex: rows.length + 1,
     };
     onChangeRows([...rows, newRow]);
-    showMsg('Satır yapıştırıldı.');
+    showMsg('Kopyalanan satır eklendi.');
   };
 
   const duplicatePattern = () => {
@@ -771,7 +992,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       courseIndex: idx + 1,
     }));
     onChangeRows(duplicated);
-    showMsg('Desen 2x çoğaltıldı.');
+    showMsg('Desen 2 katına çoğaltıldı.');
   };
 
   const mirrorPattern = () => {
@@ -781,23 +1002,138 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       courseIndex: rows.length + idx + 1,
     }));
     onChangeRows([...rows, ...reversed]);
-    showMsg('Desen aynalandı.');
+    showMsg('Desen simetrik aynalandı.');
   };
 
   const resetRowsToSingle = () => {
-    const firstRow = rows[0] || { id: 'r1', courseIndex: 1, GB1: 0, GB2: 0, GB3: 1, GB4: 0, GB5: 2, GB6: 0 };
+    const firstRow = rows[0] || {
+      id: 'r1',
+      courseIndex: 1,
+      GB1: 0,
+      GB2: 0,
+      GB3: 1,
+      GB4: 0,
+      GB5: 2,
+      GB6: 0,
+    };
     onChangeRows([{ ...firstRow, courseIndex: 1 }]);
-    showMsg('Tek satıra sıfırlandı.');
+    showMsg('Tablo tek satıra sıfırlandı.');
   };
 
+  const [copySourceGb, setCopySourceGb] = useState<GuideBarId>('GB3');
+  const [copyTargetGb, setCopyTargetGb] = useState<string>('ALL');
+  const [mirrorGbId, setMirrorGbId] = useState<GuideBarId>('GB3');
+
   const handleGenerateRandomPattern = () => {
-    const newRandomRows = generateRandomPatternRows(
-      rows.length || 12,
-      activeBars,
-      pattern.safety,
-      needleCols
+    const totalCount = rows.length || 12;
+    const maxJump = Math.max(1, pattern.safety?.maxSafeShoggingJump || 4);
+    const maxNeedle = Math.max(7, needleCols - 1);
+
+    const newRows: PatternRow[] = [];
+    for (let c = 1; c <= totalCount; c++) {
+      const prevRow = newRows[c - 2];
+      const usedInRow = new Set<number>();
+      const rowObj: PatternRow = {
+        id: `rnd-${Date.now()}-${c}`,
+        courseIndex: c,
+        GB1: 0,
+        GB2: 0,
+        GB3: 0,
+        GB4: 0,
+        GB5: 0,
+        GB6: 0,
+      };
+
+      activeBars.forEach((gbId) => {
+        const prevVal = prevRow ? (prevRow[gbId] ?? 0) : Math.floor(Math.random() * (maxNeedle + 1));
+
+        // Find candidate jumps within [-maxJump, +maxJump] that avoid needle collision with other active bars
+        const candidateDeltas = Array.from({ length: maxJump * 2 + 1 }, (_, i) => i - maxJump)
+          .sort(() => Math.random() - 0.5);
+
+        let chosenVal = prevVal;
+        let found = false;
+
+        for (const delta of candidateDeltas) {
+          const candidate = Math.max(0, Math.min(maxNeedle, prevVal + delta));
+          if (!usedInRow.has(candidate)) {
+            chosenVal = candidate;
+            found = true;
+            break;
+          }
+        }
+
+        if (!found) {
+          for (let n = 0; n <= maxNeedle; n++) {
+            if (!usedInRow.has(n)) {
+              chosenVal = n;
+              break;
+            }
+          }
+        }
+
+        usedInRow.add(chosenVal);
+        rowObj[gbId] = chosenVal;
+      });
+
+      newRows.push(rowObj);
+    }
+    onChangeRows(newRows);
+    showMsg('Güvenli sınırlar içinde çakışmasız desen üretildi.');
+  };
+
+  const handleCopyGbChainCode = () => {
+    const srcGb = copySourceGb;
+    const tgtGb = copyTargetGb;
+
+    const updated = rows.map((r) => {
+      const srcVal = r[srcGb] ?? 0;
+      if (tgtGb === 'ALL') {
+        const newR = { ...r };
+        activeBars.forEach((id) => {
+          if (id !== srcGb) newR[id] = srcVal;
+        });
+        return newR;
+      } else {
+        return { ...r, [tgtGb as GuideBarId]: srcVal };
+      }
+    });
+    onChangeRows(updated);
+    showMsg(
+      tgtGb === 'ALL'
+        ? `${srcGb} zincir kodu tüm aktif taraklara kopyalandı.`
+        : `${srcGb} zincir kodu ${tgtGb} tarağına kopyalandı.`
     );
-    onChangeRows(newRandomRows);
+  };
+
+  const handleMirrorSingleGbChainCode = () => {
+    const updated = rows.map((r, i) => {
+      const sourceRow = rows[rows.length - 1 - i];
+      return {
+        ...r,
+        [mirrorGbId]: sourceRow[mirrorGbId] ?? 0,
+      };
+    });
+    onChangeRows(updated);
+    showMsg(`${mirrorGbId} tarağı zincir kodu dikey aynalandı.`);
+  };
+
+  const toggleCellSkip = (rowIndex: number, gbId: GuideBarId) => {
+    const updated = rows.map((r, idx) => {
+      if (idx === rowIndex) {
+        const currentSkips = r.skips || {};
+        const nextVal = !currentSkips[gbId];
+        return {
+          ...r,
+          skips: {
+            ...currentSkips,
+            [gbId]: nextVal,
+          },
+        };
+      }
+      return r;
+    });
+    onChangeRows(updated);
   };
 
   const handleCellChange = (rowIndex: number, gb: GuideBarId, val: number) => {
@@ -833,306 +1169,371 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
 
     onChangeRows(newRows);
     setQuickInputText('');
-    showMsg('Notasyon uygulandı.');
-  };
-
-  // Loop Helper Handlers
-  const handleApplyLoopChange = (
-    rIdx: number,
-    gbId: GuideBarId,
-    newNeedleVal: number,
-    loopType: LoopType
-  ) => {
-    const updated = [...rows];
-    updated[rIdx] = {
-      ...updated[rIdx],
-      [gbId]: newNeedleVal,
-      loopTypes: {
-        ...(updated[rIdx].loopTypes || {}),
-        [gbId]: loopType,
-      },
-    };
-    onChangeRows(updated);
-    showMsg(`K${rIdx + 1} ${gbId} ilmeği [${loopType.toUpperCase()}] olarak güncellendi.`);
-  };
-
-  const handleAutoFixCell = (rIdx: number, gbId: GuideBarId) => {
-    const updated = [...rows];
-    const prevRow = rIdx > 0 ? updated[rIdx - 1] : null;
-    updated[rIdx] = autoFixInvalidRowCell(
-      updated[rIdx],
-      prevRow,
-      gbId,
-      pattern.safety,
-      needleCols
-    );
-    onChangeRows(updated);
-    showMsg(`K${rIdx + 1} ${gbId} ilmeği otomatik düzeltildi.`);
-  };
-
-  const handleCellClickWithTool = (rIdx: number, gbId: GuideBarId) => {
-    if (activeToolMode === 'select') return;
-
-    const prevRow = rIdx > 0 ? rows[rIdx - 1] : null;
-    const nextRow = rIdx < rows.length - 1 ? rows[rIdx + 1] : null;
-    const currentInfo = analyzeCellLoop(rows[rIdx], prevRow, nextRow, gbId, pattern.safety, needleCols);
-
-    let targetType: LoopType = 'open';
-    if (activeToolMode === 'cycle_pen') {
-      const cycleMap: Record<LoopType, LoopType> = {
-        open: 'closed',
-        closed: 'miss',
-        miss: 'tuck',
-        tuck: 'open',
-      };
-      targetType = cycleMap[currentInfo.type] || 'open';
-    } else if (activeToolMode === 'open_stamp') targetType = 'open';
-    else if (activeToolMode === 'closed_stamp') targetType = 'closed';
-    else if (activeToolMode === 'miss_stamp') targetType = 'miss';
-    else if (activeToolMode === 'tuck_stamp') targetType = 'tuck';
-
-    const prevVal = prevRow ? (prevRow[gbId] ?? (rows[rIdx][gbId] ?? 0)) : (rows[rIdx][gbId] ?? 0);
-    const newNeedle = computeNeedleValueForLoop(
-      prevVal,
-      targetType,
-      currentInfo.underlapSpan || 1,
-      needleCols,
-      pattern.safety?.maxAllowedNeedleNumber || 4
-    );
-
-    handleApplyLoopChange(rIdx, gbId, newNeedle, targetType);
+    showMsg(`${selectedGbForQuick} zincir kodu uygulandı.`);
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2.5 space-y-3">
-      {/* Toast Notification */}
+    <div className="w-full px-2 py-1.5 space-y-1.5">
+      {/* Feedback Toast */}
       {actionMsg && (
-        <div className="bg-emerald-950/90 border border-emerald-800 text-emerald-200 px-3.5 py-1.5 rounded-xl text-xs flex items-center space-x-2 shadow-lg sticky top-14 z-40">
+        <div className="bg-emerald-950/90 border border-emerald-700 text-emerald-100 px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 sticky top-12 z-40">
           <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
           <span>{actionMsg}</span>
         </div>
       )}
 
-      {/* Top Sticky Quick Toolbar */}
-      <div className="bg-slate-900/95 backdrop-blur border border-slate-800 rounded-xl p-2 sticky top-13 z-30 shadow-lg flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none">
-        <div className="flex items-center space-x-1 shrink-0">
-          <button
-            onClick={addRow}
-            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shrink-0 shadow"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Satır</span>
-          </button>
-
-          {copiedRow && (
-            <button
-              onClick={pasteRow}
-              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition flex items-center space-x-1 shrink-0"
-            >
-              <ClipboardPaste className="w-3.5 h-3.5" />
-              <span>Yapıştır</span>
-            </button>
-          )}
-
-          <button
-            onClick={duplicatePattern}
-            className="px-2 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition shrink-0"
-          >
-            2x Çoğalt
-          </button>
-
-          <button
-            onClick={mirrorPattern}
-            className="px-2 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition shrink-0"
-          >
-            Aynala
-          </button>
-        </div>
-
-        <div className="flex items-center space-x-1 shrink-0 ml-auto">
-          <button
-            onClick={onUndo}
-            disabled={!canUndo}
-            className="p-1.5 bg-slate-950 border border-slate-800 text-slate-300 disabled:opacity-30 rounded-lg hover:bg-slate-800 transition"
-            title="Geri Al"
-          >
-            <Undo2 className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={onRedo}
-            disabled={!canRedo}
-            className="p-1.5 bg-slate-950 border border-slate-800 text-slate-300 disabled:opacity-30 rounded-lg hover:bg-slate-800 transition"
-            title="Yinele"
-          >
-            <Redo2 className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={onOpenSafetySettings}
-            className="p-1.5 bg-amber-950/40 border border-amber-800/60 text-amber-400 rounded-lg text-xs font-medium hover:bg-amber-900/40 transition flex items-center space-x-1"
-            title="Güvenlik"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Visual Point Paper Drag Canvas */}
-      <div
+      {/* SECTION 1: LIVE DRAG-AND-DROP POINT PAPER CANVAS WITH MERGED TOOLBAR */}
+      <section
         ref={canvasCardRef}
         onPointerLeave={() => {
           setHoverInfo(null);
           draggingRef.current = null;
           setDraggingNode(null);
         }}
-        className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden relative"
+        className="bg-[#111827] border border-slate-800 rounded-lg overflow-hidden relative"
       >
-        <div className="bg-slate-950 px-3 py-2 border-b border-slate-800 flex items-center justify-between gap-2 overflow-x-auto scrollbar-none">
-          <div className="flex items-center space-x-1.5 shrink-0">
-            <Sliders className="w-4 h-4 text-blue-400 shrink-0" />
-            <span className="text-xs font-bold text-white">Canlı Sürükle-Bırak</span>
-          </div>
+        {/* Unified Single-Row Canvas & Operator Toolbar - Center-Aligned Buttons */}
+        <div className="bg-[#0F172A] px-2 py-1.5 border-b border-slate-800 flex flex-wrap items-center justify-center gap-2 text-xs">
+          {/* Left: Guide Bar Selection + Independent Needle Count (Max 96) */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex items-center gap-1 bg-[#0B0F17] p-0.5 rounded border border-slate-800">
+              <span className="text-[11px] font-semibold text-slate-400 px-1">Tarak:</span>
+              {activeBars.map((gbId) => {
+                const gb = pattern.guideBars[gbId];
+                const isSelected = activeGbId === gbId;
+                return (
+                  <button
+                    key={gbId}
+                    type="button"
+                    onClick={() => setActiveGbId(gbId)}
+                    className={`px-2 py-0.5 rounded text-xs font-bold border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'text-white border-transparent'
+                        : 'bg-[#111827] text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                    style={{ backgroundColor: isSelected ? gb.color : undefined }}
+                  >
+                    {gbId}
+                  </button>
+                );
+              })}
+              {guideBarCalculations[activeGbId] && (
+                <div className="ml-1">
+                  <GuideBarCalcBadge metrics={guideBarCalculations[activeGbId]!} compact={true} />
+                </div>
+              )}
+            </div>
 
-          {/* Guide Bar Selector */}
-          <div className="flex items-center space-x-1 shrink-0">
-            {activeBars.map((gbId) => {
-              const gb = pattern.guideBars[gbId];
-              const isSelected = activeGbId === gbId;
-              return (
-                <button
-                  key={gbId}
-                  onClick={() => setActiveGbId(gbId)}
-                  className={`px-2 py-0.5 rounded-lg text-xs font-bold border transition shrink-0 ${
-                    isSelected ? 'text-white border-transparent shadow' : 'bg-slate-950 text-slate-400 border-slate-800'
-                  }`}
-                  style={{ backgroundColor: isSelected ? gb.color : undefined }}
-                >
-                  {gbId}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Right Tools: Fullscreen & Touch Zoom Controls */}
-          <div className="flex items-center space-x-1.5 shrink-0">
-            <button
-              onClick={() => toggleFullscreen(canvasCardRef, false)}
-              className="px-2 py-0.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded text-[10px] font-medium transition flex items-center space-x-1"
-              title="Tam Ekran"
+            {/* Independent Needle Count Control (Direct Text + Steppers [-] [+]) */}
+            <div
+              className="flex items-center gap-1 bg-[#0B0F17] px-1.5 py-0.5 rounded border border-slate-800"
+              title="Şema İğne Sayısı (8 - 96)"
             >
-              <Maximize2 className="w-3 h-3 text-blue-400" />
-              <span>{isCanvasFullscreen ? 'Normal' : 'Tam Ekran'}</span>
+              <span className="font-semibold text-xs text-slate-400 whitespace-nowrap">İğne:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Math.max(8, editorNeedles - 1);
+                  setEditorNeedlesInputText(String(next));
+                  setEditorNeedles(next);
+                }}
+                className="w-4.5 h-4.5 flex items-center justify-center bg-[#111827] border border-slate-700 hover:border-slate-500 rounded text-slate-300 hover:text-white cursor-pointer"
+                title="İğne Eksilt (-1)"
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={editorNeedlesInputText}
+                onChange={(e) => {
+                  const valStr = e.target.value;
+                  setEditorNeedlesInputText(valStr);
+                  const parsed = parseInt(valStr, 10);
+                  if (!isNaN(parsed) && parsed >= 8 && parsed <= 96) {
+                    setEditorNeedles(parsed);
+                  }
+                }}
+                onBlur={() => {
+                  const parsed = parseInt(editorNeedlesInputText, 10);
+                  const clamped = isNaN(parsed) ? 32 : Math.max(8, Math.min(96, parsed));
+                  setEditorNeedlesInputText(String(clamped));
+                  if (clamped !== editorNeedles) {
+                    setEditorNeedles(clamped);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className="w-10 bg-[#111827] border border-slate-700 rounded px-1 py-0.5 text-center font-mono font-bold text-blue-400 focus:outline-none focus:border-blue-500 tabular-nums text-xs"
+                title="Şema İğne Sayısı"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Math.min(96, editorNeedles + 1);
+                  setEditorNeedlesInputText(String(next));
+                  setEditorNeedles(next);
+                }}
+                className="w-4.5 h-4.5 flex items-center justify-center bg-[#111827] border border-slate-700 hover:border-slate-500 rounded text-slate-300 hover:text-white cursor-pointer"
+                title="İğne Artır (+1)"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+
+          {/* Center: Pattern & Course Actions */}
+          <div className="flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              onClick={addRow}
+              className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+              title="Yeni Kurs Satırı Ekle"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Kurs</span>
             </button>
 
-            <div className="flex items-center space-x-1 bg-slate-950 px-1.5 py-0.5 rounded-lg border border-slate-800">
+            <button
+              type="button"
+              onClick={deleteLastRow}
+              disabled={rows.length <= 1}
+              className="px-2 py-1 bg-rose-950/50 hover:bg-rose-900/60 border border-rose-800/80 text-rose-200 disabled:opacity-30 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+              title="Son Kursu Sil"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Sil</span>
+            </button>
+
+            {copiedRow && (
               <button
+                type="button"
+                onClick={pasteRow}
+                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                title="Kopyalanan Satırı Yapıştır"
+              >
+                <ClipboardPaste className="w-3.5 h-3.5" />
+                <span>Yapıştır</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={duplicatePattern}
+              className="px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+              title="Deseni 2x Çoğalt"
+            >
+              <CopyPlus className="w-3.5 h-3.5 text-blue-400" />
+              <span>2x</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={mirrorPattern}
+              className="px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+              title="Simetrik Aynala"
+            >
+              <FlipVertical className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Aynala</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleGenerateRandomPattern}
+              className="px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+              title="Otomatik Desen Üret"
+            >
+              <Dices className="w-3.5 h-3.5 text-blue-400" />
+              <span>Üret</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsLivePreviewOpen((prev) => !prev)}
+              className={`p-1 rounded border transition-colors cursor-pointer ${
+                isLivePreviewOpen
+                  ? 'bg-blue-600 text-white border-blue-500'
+                  : 'bg-[#0B0F17] text-slate-300 border-slate-700 hover:bg-slate-800'
+              }`}
+              title="Ufak Kumaş Önizleme"
+            >
+              <Eye className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="p-1 bg-[#0B0F17] border border-slate-700 text-slate-200 disabled:opacity-30 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Geri Al"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="p-1 bg-[#0B0F17] border border-slate-700 text-slate-200 disabled:opacity-30 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+              title="İleri Al"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Right: Zoom, Fit */}
+          <div className="flex items-center gap-1">
+            <div
+              onWheel={(e) => {
+                e.preventDefault();
+                setIsAutoZoom(false);
+                const delta = e.deltaY < 0 ? 0.05 : -0.05;
+                setZoom((z) => Math.max(0.35, Math.min(2.2, Math.round((z + delta) * 100) / 100)));
+              }}
+              className="flex items-center gap-1 bg-[#0B0F17] p-1 rounded-lg border border-slate-800"
+              title="Zoom (Farenin orta tekerleği ile hızlı yakınlaştır/uzaklaştır)"
+            >
+              <button
+                type="button"
                 onClick={() => {
                   setIsAutoZoom(false);
-                  setZoom((z) => Math.max(0.4, Math.round((z - 0.15) * 100) / 100));
+                  setZoom((z) => Math.max(0.35, Math.round((z - 0.15) * 100) / 100));
                 }}
-                className="text-slate-400 hover:text-white p-1 active:scale-90"
+                className="text-slate-300 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
                 title="Uzaklaştır"
               >
-                <ZoomOut className="w-3.5 h-3.5" />
+                <ZoomOut className="w-4 h-4" />
               </button>
-              <span className="text-[10px] font-mono text-slate-300 min-w-[32px] text-center">
-                {Math.round(zoom * 100)}%
+              <span className="text-xs font-mono font-bold text-slate-200 min-w-[40px] text-center tabular-nums">
+                %{Math.round(zoom * 100)}
               </span>
               <button
+                type="button"
                 onClick={() => {
                   setIsAutoZoom(false);
                   setZoom((z) => Math.min(2.2, Math.round((z + 0.15) * 100) / 100));
                 }}
-                className="text-slate-400 hover:text-white p-1 active:scale-90"
+                className="text-slate-300 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
                 title="Yakınlaştır"
               >
-                <ZoomIn className="w-3.5 h-3.5" />
+                <ZoomIn className="w-4 h-4" />
               </button>
+
               <button
+                type="button"
+                onClick={() => {
+                  if (containerRef.current) {
+                    const availWidth = containerRef.current.clientWidth - 12;
+                    if (availWidth > 0 && canvasWidth > 0) {
+                      const fitW = availWidth / canvasWidth;
+                      const clamped = Math.max(
+                        0.3,
+                        Math.min(1.6, Math.floor(fitW * 100) / 100)
+                      );
+                      setIsAutoZoom(false);
+                      setZoom(clamped);
+                    }
+                  }
+                }}
+                className="p-1 rounded bg-[#111827] text-slate-200 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors cursor-pointer"
+                title="Yatay Sığdır"
+              >
+                <MoveHorizontal className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
                 onClick={() => {
                   setIsAutoZoom(true);
                   setTimeout(() => calculateEditorFitZoom(), 20);
                 }}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition flex items-center space-x-1 ${
-                  isAutoZoom
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-                }`}
-                title="Ekrana Tam Sığdır (*Dikey)"
+                className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors cursor-pointer"
+                title="Dikey Sığdır"
               >
-                <Maximize2 className="w-3 h-3" />
-                <span>Sığdır</span>
+                <MoveVertical className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
         </div>
 
-        {/* Canvas Area with Touch Pinch-to-Zoom */}
+        {/* Canvas Viewport */}
         <div
           ref={containerRef}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          className={`p-2 overflow-auto bg-[#070b14] flex justify-center cursor-crosshair select-none touch-pan-x touch-pan-y ${
-            (isFullscreen || isCanvasFullscreen) ? 'h-[calc(100vh-135px)] max-h-none' : 'max-h-[420px]'
+          onWheel={(e) => {
+            if (e.ctrlKey || e.metaKey || e.altKey) {
+              e.preventDefault();
+              setIsAutoZoom(false);
+              const delta = e.deltaY < 0 ? 0.08 : -0.08;
+              setZoom((z) => Math.max(0.35, Math.min(2.2, Math.round((z + delta) * 100) / 100)));
+            }
+          }}
+          className={`p-0.5 overflow-auto bg-[#070b14] flex justify-center cursor-crosshair select-none touch-pan-x touch-pan-y ${
+            isFullscreen || isCanvasFullscreen
+              ? 'h-[calc(100vh-90px)] max-h-none'
+              : 'max-h-[340px]'
           }`}
         >
           <div
             style={{
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top center',
-              transition: 'transform 0.1s ease-out',
+              width: `${Math.round(canvasWidth * zoom)}px`,
+              height: `${Math.round(canvasHeight * zoom)}px`,
+              overflow: 'hidden',
             }}
           >
-            <canvas
-              ref={canvasRef}
-              width={canvasWidth}
-              height={canvasHeight}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-              className="rounded-xl border border-slate-800 shadow-2xl bg-[#080d1a] touch-none cursor-pointer"
-            />
+            <div
+              style={{
+                transform: `scale(${zoom})`,
+                transformOrigin: 'top left',
+                transition: 'transform 0.1s ease-out',
+              }}
+            >
+              <canvas
+                ref={canvasRef}
+                width={canvasWidth}
+                height={canvasHeight}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onDoubleClick={handleDoubleClickCanvas}
+                className="rounded border border-slate-800/80 bg-[#080d1a] touch-none cursor-pointer block"
+              />
+            </div>
           </div>
         </div>
 
-        {/* Floating Tooltip HUD on Drag & Touch (Smaller, further away, single) */}
+        {/* Clean Coordinates Tooltip */}
         {(draggingNode || hoverInfo) && hoverInfo?.x && hoverInfo?.y && (
           <div
             style={{
               position: 'fixed',
               left: `${hoverInfo.x}px`,
-              top: `${hoverInfo.y - 78}px`,
+              top: `${hoverInfo.y - 60}px`,
               transform: 'translateX(-50%)',
               pointerEvents: 'none',
             }}
-            className="z-50 bg-slate-950/90 backdrop-blur-md border border-blue-500/80 shadow-2xl rounded-lg px-2 py-0.5 text-slate-100 flex items-center space-x-1.5 animate-in fade-in zoom-in-95 duration-75 select-none"
+            className="z-50 bg-[#0F172A] border border-blue-500 rounded px-2 py-0.5 text-slate-100 flex items-center gap-1.5 select-none shadow-lg"
           >
-            <div className="flex items-center space-x-1 shrink-0">
-              <span
-                className="w-2 h-2 rounded-full animate-ping shrink-0"
-                style={{ backgroundColor: pattern.guideBars[activeGbId]?.color || '#38bdf8' }}
-              />
-              <span className="text-[10px] font-bold text-white font-mono">
-                {activeGbId}
-              </span>
-            </div>
-
-            <div className="h-3 w-px bg-slate-800 shrink-0" />
-
-            <div className="text-[10px] font-mono font-bold flex items-center space-x-1.5 shrink-0">
-              <span className="text-blue-400">
-                Adım {rows[draggingNode ? draggingNode.courseIdx : hoverInfo.courseIdx]?.stepIndex ?? ((draggingNode ? draggingNode.courseIdx : hoverInfo.courseIdx) + 1)}
-              </span>
-              <span className="text-slate-600">•</span>
-              <span className="text-emerald-400">
-                İğne İ{(draggingNode ? draggingNode.currentNeedle : hoverInfo.needle)}
-              </span>
-            </div>
+            <span className="text-xs font-bold text-white font-mono">{activeGbId}</span>
+            <span className="text-slate-600">·</span>
+            <span className="text-xs font-mono font-bold text-blue-400 tabular-nums">
+              K{(draggingNode ? draggingNode.courseIdx : hoverInfo.courseIdx) + 1}
+            </span>
+            <span className="text-slate-600">·</span>
+            <span className="text-xs font-mono font-bold text-emerald-400 tabular-nums">
+              İ{draggingNode ? draggingNode.currentNeedle : hoverInfo.needle}
+            </span>
           </div>
         )}
 
-        {/* Movable & Resizable Windows-Style Preview Window */}
+        {/* Movable & Resizable Persistent Fabric Surface Preview Window */}
         {isLivePreviewOpen && (
           <div
             style={{
@@ -1143,212 +1544,246 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
               height: `${previewWindow.height}px`,
               zIndex: 60,
             }}
-            className="bg-slate-950/95 backdrop-blur-md border border-slate-700/80 shadow-2xl rounded-xl p-2 flex flex-col justify-between overflow-hidden group select-none"
+            className="bg-[#0F172A]/95 border border-slate-700 shadow-2xl rounded-lg p-1.5 flex flex-col justify-between overflow-hidden select-none"
           >
-            {/* Window Header / Drag Handle */}
             <div
               onPointerDown={handleStartDragPreview}
-              className="flex items-center justify-between text-[10px] font-bold text-white border-b border-slate-800/80 pb-1 cursor-move select-none shrink-0"
-              title="Sürükle: Ekran Üzerinde Taşı"
+              className="flex items-center justify-between text-xs font-bold text-white border-b border-slate-800 pb-1 cursor-move select-none shrink-0 gap-1"
+              title="Taşımak için sürükleyin"
             >
-              <span className="flex items-center space-x-1">
+              <span className="flex items-center gap-1 shrink-0">
                 <GripVertical className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <Sparkles className="w-3 h-3 text-blue-400 shrink-0" />
-                <span>Pencere Önizleme</span>
+                <span>Önizleme</span>
               </span>
+
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewRepeatX((prev) => (prev === 1 ? 2 : 1));
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                    previewRepeatX === 2
+                      ? 'bg-blue-600 text-white border-blue-500'
+                      : 'bg-[#111827] text-slate-300 border-slate-700 hover:text-white'
+                  }`}
+                >
+                  Y:2x
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewRepeatY((prev) => (prev === 1 ? 2 : 1));
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                    previewRepeatY === 2
+                      ? 'bg-blue-600 text-white border-blue-500'
+                      : 'bg-[#111827] text-slate-300 border-slate-700 hover:text-white'
+                  }`}
+                >
+                  D:2x
+                </button>
+              </div>
+
               <button
+                type="button"
                 onClick={() => setIsLivePreviewOpen(false)}
-                className="text-slate-400 hover:text-white p-0.5 rounded transition"
+                className="text-slate-400 hover:text-white px-1 rounded transition-colors shrink-0 cursor-pointer"
                 title="Kapat"
               >
                 ✕
               </button>
             </div>
 
-            {/* Window Canvas Body */}
-            <div className="flex-1 w-full overflow-hidden flex items-center justify-center my-1 bg-[#0a0f1e] rounded-lg border border-slate-800/80">
+            <div className="flex-1 w-full overflow-hidden flex items-center justify-center my-0.5 bg-[#070b14] rounded border border-slate-800">
               <canvas
                 ref={previewCanvasRef}
-                width={previewWindow.width - 16}
-                height={previewWindow.height - 32}
-                className="rounded-lg"
+                width={Math.max(120, previewWindow.width - 12)}
+                height={Math.max(70, previewWindow.height - 32)}
+                className="rounded block"
               />
             </div>
 
-            {/* Window Resize Handle */}
             <div
               onPointerDown={handleStartResizePreview}
-              className="absolute bottom-0.5 right-0.5 w-4 h-4 cursor-se-resize flex items-center justify-center text-slate-500 hover:text-blue-400 z-10"
-              title="Boyutlandır (Sürükle)"
+              className="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 cursor-se-resize flex items-center justify-center text-slate-400 hover:text-blue-400 z-10"
+              title="Boyutlandır"
             >
-              <svg className="w-3 h-3 opacity-60 hover:opacity-100" viewBox="0 0 16 16" fill="currentColor">
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M14 14H12V12H14V14ZM14 10H12V8H14V10ZM10 14H8V12H10V14Z" />
               </svg>
             </div>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* INSTANT LIVE FABRIC SIMULATION CARD */}
-      {showLiveFabricCard && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2.5 space-y-2 shadow-lg">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-            <div className="flex items-center space-x-1.5">
-              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 animate-pulse" />
-              <span className="text-xs font-bold text-white">Anlık Canlı Kumaş Simülasyonu</span>
+      {/* SECTION 2: FORMAL PATTERN CODE TABLE WITH MERGED HEADER BAR */}
+      <section
+        ref={tableCardRef}
+        className="bg-[#111827] border border-slate-800 rounded-lg p-2 space-y-1.5"
+      >
+        {/* Single-Row Merged Table Header + Quick Code + Copy + Mirror + Controls */}
+        <div className="flex flex-wrap items-center justify-center gap-2 bg-[#0B0F17] px-2 py-1 rounded border border-slate-800 text-xs">
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <span className="font-bold text-white whitespace-nowrap">
+              Zincir Tablosu ({rows.length}K):
+            </span>
+
+            {/* Quick Notation Input */}
+            <div className="flex items-center gap-1 bg-[#111827] px-1.5 py-0.5 rounded border border-slate-800">
+              <span className="text-[11px] font-semibold text-slate-400 whitespace-nowrap">
+                Hızlı:
+              </span>
+              <select
+                value={selectedGbForQuick}
+                onChange={(e) => setSelectedGbForQuick(e.target.value as GuideBarId)}
+                className="bg-[#0B0F17] border border-slate-700 rounded px-1 py-0.5 text-xs font-bold text-white cursor-pointer"
+              >
+                {activeBars.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={quickInputText}
+                onChange={(e) => setQuickInputText(e.target.value)}
+                placeholder="1 0 1 2..."
+                className="bg-[#0B0F17] border border-slate-700 rounded px-1.5 py-0.5 text-xs text-white font-mono w-28 sm:w-36 focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={handleQuickNotationParse}
+                className="p-1 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors cursor-pointer"
+                title="Hızlı Kodu Uygula"
+              >
+                <Check className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <button
-              onClick={() => setShowLiveFabricCard(false)}
-              className="text-[10px] text-slate-500 hover:text-slate-300"
-            >
-              Gizle
-            </button>
+
+            {/* Copy Single GB Chain Code to Target */}
+            <div className="flex items-center gap-1 bg-[#111827] px-1.5 py-0.5 rounded border border-slate-800" title="Zincir Kopyala">
+              <Copy className="w-3 h-3 text-blue-400 shrink-0" />
+              <select
+                value={copySourceGb}
+                onChange={(e) => setCopySourceGb(e.target.value as GuideBarId)}
+                className="bg-[#0B0F17] border border-slate-700 rounded px-1 py-0.5 font-bold text-white text-xs cursor-pointer"
+              >
+                {activeBars.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+              <span className="text-slate-500 font-bold">→</span>
+              <select
+                value={copyTargetGb}
+                onChange={(e) => setCopyTargetGb(e.target.value)}
+                className="bg-[#0B0F17] border border-slate-700 rounded px-1 py-0.5 font-bold text-white text-xs cursor-pointer"
+              >
+                <option value="ALL">Tümü</option>
+                {activeBars.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleCopyGbChainCode}
+                className="p-1 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors cursor-pointer"
+                title="Zincir Kodunu Kopyala"
+              >
+                <Check className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Mirror Single Guide Bar Chain Code Vertically */}
+            <div className="flex items-center gap-1 bg-[#111827] px-1.5 py-0.5 rounded border border-slate-800" title="Dikey Aynala">
+              <FlipVertical className="w-3 h-3 text-emerald-400 shrink-0" />
+              <select
+                value={mirrorGbId}
+                onChange={(e) => setMirrorGbId(e.target.value as GuideBarId)}
+                className="bg-[#0B0F17] border border-slate-700 rounded px-1 py-0.5 font-bold text-white text-xs cursor-pointer"
+              >
+                {activeBars.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleMirrorSingleGbChainCode}
+                className="px-1.5 py-0.5 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-[11px] font-semibold transition-colors cursor-pointer"
+                title="Seçili Tarağı Dikey Aynala"
+              >
+                Aynala
+              </button>
+            </div>
           </div>
 
-          <div className="p-2 overflow-auto bg-[#05070d] rounded-xl flex justify-center border border-slate-800">
-            <canvas
-              ref={liveFabricCanvasRef}
-              width={canvasWidth - 80}
-              height={220}
-              className="rounded-lg bg-[#0a0f1e]"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* VISUAL LOOP TOOLBAR (İlmek Çizici & Sihirbazı Modu Toolbar) */}
-      <VisualLoopToolbar
-        activeToolMode={activeToolMode}
-        onSelectToolMode={setActiveToolMode}
-        activeGbId={activeGbId}
-        activeBars={activeBars}
-        rows={rows}
-        safety={pattern.safety}
-        needleCols={needleCols}
-        onApplyMassTransform={(newRows, msg) => {
-          onChangeRows(newRows);
-          showMsg(msg);
-        }}
-      />
-
-      {/* Pattern Code Table & Chain Grid - CELL-LEVEL LOOP GLYPHS & INLINE EDITING */}
-      <div ref={tableCardRef} className="bg-slate-900 border border-slate-800 rounded-2xl p-2.5 sm:p-3 space-y-2.5 shadow-lg">
-        {/* Table Controls Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
-          <div className="flex items-center space-x-2">
-            <TableIcon className="w-4 h-4 text-blue-400 shrink-0" />
-            <h3 className="text-xs sm:text-sm font-bold text-white">
-              Desen Kod Tablosu & İlmek Yapısı ({rows.length} Kurs)
-            </h3>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5">
+          {/* Right: Table Reset */}
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => toggleFullscreen(tableCardRef, true)}
-              className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition flex items-center space-x-1"
-              title="Tam Ekran"
-            >
-              <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
-              <span>{isTableFullscreen ? 'Normal' : 'Tam Ekran'}</span>
-            </button>
-            <button
-              onClick={handleGenerateRandomPattern}
-              className="px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-md active:scale-95"
-              title="Rastgele Desen Çiz (Otomatik Geçerli Çözgülü Örme Hareketi)"
-            >
-              <Dices className="w-3.5 h-3.5" />
-              <span>Rastgele Desen</span>
-            </button>
-            <button
-              onClick={addRow}
-              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Satır</span>
-            </button>
-            <button
-              onClick={duplicatePattern}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-lg text-xs font-medium transition"
-            >
-              2x
-            </button>
-            <button
-              onClick={mirrorPattern}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-lg text-xs font-medium transition"
-            >
-              Aynala
-            </button>
-            <button
+              type="button"
               onClick={resetRowsToSingle}
-              className="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 border border-rose-900/60 rounded-lg text-xs transition"
+              className="px-2 py-0.5 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-800/80 rounded text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1"
+              title="Tabloyu Sıfırla"
             >
-              Temizle
+              <Trash2 className="w-3 h-3" />
+              <span>Sıfırla</span>
             </button>
           </div>
         </div>
 
-        {/* Quick Input Bar */}
-        <div className="flex items-center space-x-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800/80">
-          <span className="text-[11px] text-slate-400 font-medium shrink-0">Kod:</span>
-          <select
-            value={selectedGbForQuick}
-            onChange={(e) => setSelectedGbForQuick(e.target.value as GuideBarId)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-slate-200 shrink-0"
-            style={{ color: pattern.guideBars[selectedGbForQuick]?.color }}
-          >
-            {activeBars.map((id) => (
-              <option key={id} value={id}>{id}</option>
-            ))}
-          </select>
-          <input
-            type="text"
-            value={quickInputText}
-            onChange={(e) => setQuickInputText(e.target.value)}
-            placeholder="1-0 1-2 2-1"
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 font-mono flex-1 min-w-[100px]"
-          />
-          <button
-            onClick={handleQuickNotationParse}
-            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition shrink-0"
-          >
-            Ekle
-          </button>
-        </div>
-
-        {/* COLOR CODED TABLE VIEWPORT WITH CELL-LEVEL GLYPHS */}
-        <div className="overflow-x-auto max-h-[420px] rounded-xl border border-slate-800 bg-[#070b14] scrollbar-thin">
-          <table className="w-full text-left text-xs font-mono border-collapse">
-            <thead className="bg-slate-950 sticky top-0 z-10 border-b border-slate-800">
+        {/* High-Density Formal Data Grid */}
+        <div className="overflow-x-auto max-h-[420px] rounded border border-slate-800 bg-[#0B0F17]">
+          <table className="w-full text-left text-xs font-mono border-collapse tabular-nums">
+            <thead className="bg-[#0F172A] sticky top-0 z-10 border-b border-slate-800">
               <tr>
-                <th className="py-2 px-2.5 text-slate-400 text-center w-14 border-r border-slate-800/60">
+                <th className="py-1.5 px-2 text-slate-300 text-center w-16 border-r border-slate-800 font-semibold">
                   Kurs
                 </th>
                 {activeBars.map((gbId) => {
                   const gbColor = pattern.guideBars[gbId]?.color || '#3b82f6';
-                  const softBg = getSoftColorBg(gbColor, 0.18);
+                  const softBg = getSoftColorBg(gbColor, 0.14);
+                  const metrics = guideBarCalculations[gbId];
+
                   return (
                     <th
                       key={gbId}
-                      className="py-2 px-2 text-center border-r border-slate-800/60 font-bold"
+                      className="py-1.5 px-2 text-center border-r border-slate-800 font-bold"
                       style={{
                         backgroundColor: softBg,
                         color: gbColor,
-                        borderBottom: `2.5px solid ${gbColor}`,
+                        borderBottom: `2px solid ${gbColor}`,
                       }}
                     >
-                      <div className="flex items-center justify-center space-x-1">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: gbColor }} />
-                        <span>{gbId}</span>
+                      <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
+                        <div className="flex items-center gap-1">
+                          <span
+                            className="w-2 h-2 rounded-xs shrink-0"
+                            style={{ backgroundColor: gbColor }}
+                          />
+                          <span>{gbId}</span>
+                        </div>
+                        {metrics && (
+                          <GuideBarCalcBadge metrics={metrics} compact={true} />
+                        )}
                       </div>
                     </th>
                   );
                 })}
-                <th className="py-2 px-2.5 text-right text-slate-400 w-16">
+                <th className="py-1.5 px-2 text-right text-slate-300 w-24 font-semibold">
                   İşlem
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60">
+            <tbody className="divide-y divide-slate-800/80">
               {rows.map((row, rIdx) => (
                 <tr
                   key={row.id || rIdx}
@@ -1367,119 +1802,103 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                     reorderRows(draggedRowIndex, rIdx);
                     setDraggedRowIndex(null);
                   }}
-                  className={`hover:bg-slate-800/40 transition select-none ${
-                    draggedRowIndex === rIdx ? 'opacity-40 bg-blue-950/60' : ''
+                  className={`hover:bg-slate-900/80 transition-colors select-none ${
+                    draggedRowIndex === rIdx ? 'opacity-40 bg-blue-950/50' : ''
                   }`}
                 >
                   <td
-                    className="py-1.5 px-1.5 text-center font-bold text-slate-300 border-r border-slate-800/60 bg-slate-950/40 cursor-grab active:cursor-grabbing hover:bg-slate-900 transition"
-                    title="Kurs Sırasını Değiştirmek İçin Sürükleyin"
+                    className="py-1 px-1.5 text-center font-bold text-slate-200 border-r border-slate-800 bg-[#0F172A]/60 cursor-grab active:cursor-grabbing"
+                    title="Sürükle"
                   >
-                    <div className="flex items-center justify-center space-x-1">
-                      <GripVertical className="w-3.5 h-3.5 text-slate-500 hover:text-blue-400 shrink-0" />
+                    <div className="flex items-center justify-center gap-0.5">
+                      <GripVertical className="w-3 h-3 text-slate-500 shrink-0" />
                       <span>K{row.courseIndex}</span>
                     </div>
                   </td>
+
                   {activeBars.map((gbId) => {
                     const gbColor = pattern.guideBars[gbId]?.color || '#3b82f6';
-                    const softBg = getSoftColorBg(gbColor, 0.05);
+                    const softBg = getSoftColorBg(gbColor, 0.04);
                     const val = row[gbId] ?? 0;
-                    const prevRow = rIdx > 0 ? rows[rIdx - 1] : null;
-                    const nextRow = rIdx < rows.length - 1 ? rows[rIdx + 1] : null;
-
-                    const loopInfo = analyzeCellLoop(row, prevRow, nextRow, gbId, pattern.safety, needleCols);
+                    const isSkipped = row.skips?.[gbId] ?? false;
 
                     return (
                       <td
                         key={gbId}
-                        className={`py-1.5 px-1 text-center border-r border-slate-800/50 relative group transition-all cursor-pointer ${
-                          !loopInfo.isValid ? 'bg-rose-950/40 ring-2 ring-rose-500/80 rounded-lg' : ''
-                        }`}
-                        style={{ backgroundColor: loopInfo.isValid ? softBg : undefined }}
-                        onClick={() => handleCellClickWithTool(rIdx, gbId)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setPopover({
-                            isOpen: true,
-                            position: { x: e.clientX, y: e.clientY },
-                            rowIndex: rIdx,
-                            gbId,
-                          });
-                        }}
-                        onDoubleClick={(e) => {
-                          e.preventDefault();
-                          setPopover({
-                            isOpen: true,
-                            position: { x: e.clientX, y: e.clientY },
-                            rowIndex: rIdx,
-                            gbId,
-                          });
-                        }}
-                        title={
-                          !loopInfo.isValid
-                            ? loopInfo.invalidReason || 'Geçersiz İlmek Hareketi'
-                            : `Sağ Tık / Çift Dokun: İlmek menüsü (${loopInfo.label})`
-                        }
+                        className="py-1 px-1.5 text-center border-r border-slate-800/60"
+                        style={{ backgroundColor: softBg }}
                       >
-                        <div className="flex items-center justify-center space-x-1">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleCellChange(rIdx, gbId, Math.max(0, val - 1))}
+                            className="w-5 h-6 rounded bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center cursor-pointer"
+                            title="-1"
+                          >
+                            -
+                          </button>
                           <input
                             type="number"
                             min={0}
                             max={needleCols - 1}
                             value={val}
-                            onChange={(e) => handleCellChange(rIdx, gbId, parseInt(e.target.value, 10))}
-                            className={`w-11 sm:w-13 h-7 bg-slate-950 rounded-lg text-center font-bold font-mono focus:outline-none transition shadow-inner text-xs ${
-                              !loopInfo.isValid ? 'border-2 border-rose-500 text-rose-300' : ''
-                            }`}
-                            style={{
-                              color: loopInfo.isValid ? gbColor : undefined,
-                              borderColor: loopInfo.isValid ? getSoftColorBg(gbColor, 0.5) : undefined,
-                              borderWidth: '1.5px',
-                            }}
+                            onChange={(e) =>
+                              handleCellChange(rIdx, gbId, parseInt(e.target.value, 10))
+                            }
+                            className="w-11 h-6 bg-[#0B0F17] rounded text-center font-bold font-mono focus:outline-none text-xs border border-slate-700 focus:border-blue-500 tabular-nums"
+                            style={{ color: gbColor }}
                           />
-
-                          {/* Mini İlmek Simgesi (Glyph) & Badgesi */}
-                          <LoopGlyph type={loopInfo.type} direction={loopInfo.direction} size="sm" />
-
-                          {/* Warning Badge & Auto-Fix Trigger if Invalid */}
-                          {!loopInfo.isValid && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAutoFixCell(rIdx, gbId);
-                              }}
-                              className="p-1 bg-rose-600 hover:bg-rose-500 text-white rounded-md text-[9px] font-bold shrink-0 shadow animate-pulse"
-                              title="Tıkla: En Yakın Geçerli İlmeğe Otomatik Düzelt"
-                            >
-                              Fix
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleCellChange(rIdx, gbId, Math.min(needleCols - 1, val + 1))
+                            }
+                            className="w-5 h-6 rounded bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center cursor-pointer"
+                            title="+1"
+                          >
+                            +
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleCellSkip(rIdx, gbId)}
+                            className={`px-1.5 h-6 rounded text-[10px] font-bold border transition-colors cursor-pointer whitespace-nowrap ${
+                              isSkipped
+                                ? 'bg-rose-600 text-white border-rose-500'
+                                : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
+                            }`}
+                            title={`K${row.courseIndex} ${gbId} Atlama`}
+                          >
+                            {isSkipped ? 'ATLAMA' : 'Atla'}
+                          </button>
                         </div>
                       </td>
                     );
                   })}
-                  <td className="py-1.5 px-2 text-right">
-                    <div className="flex items-center justify-end space-x-1">
+
+                  <td className="py-1 px-2 text-right">
+                    <div className="flex items-center justify-end gap-1">
                       <button
+                        type="button"
                         onClick={() => insertRowAfter(rIdx)}
-                        className="p-1 text-emerald-400 hover:bg-emerald-950/60 hover:text-emerald-300 rounded transition flex items-center space-x-0.5"
-                        title="Altına Araya Satır Ekle"
+                        className="p-1 text-emerald-400 hover:text-white bg-emerald-950/40 hover:bg-emerald-800/60 border border-emerald-800/70 rounded transition-colors cursor-pointer"
+                        title="Altına Satır Ekle"
                       >
-                        <Plus className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="hidden xl:inline text-[9px] font-bold">Araya</span>
+                        <Plus className="w-3.5 h-3.5" />
                       </button>
                       <button
+                        type="button"
                         onClick={() => copyRow(row)}
-                        className="p-1 text-slate-400 hover:text-blue-400 rounded transition"
-                        title="Kopyala"
+                        className="p-1 text-slate-300 hover:text-white bg-[#111827] hover:bg-slate-800 border border-slate-700 rounded transition-colors cursor-pointer"
+                        title="Satırı Kopyala"
                       >
                         <Copy className="w-3.5 h-3.5" />
                       </button>
                       <button
+                        type="button"
                         onClick={() => deleteRow(rIdx)}
                         disabled={rows.length <= 1}
-                        className="p-1 text-slate-400 hover:text-rose-400 disabled:opacity-30 rounded transition"
-                        title="Sil"
+                        className="p-1 text-slate-400 hover:text-rose-400 bg-[#111827] hover:bg-slate-800 border border-slate-700 disabled:opacity-30 rounded transition-colors cursor-pointer"
+                        title="Satırı Sil"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1490,50 +1909,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
             </tbody>
           </table>
         </div>
-
-        {/* BOTTOM QUICK ADD BAR */}
-        <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
-          <button
-            onClick={addRow}
-            className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Yeni Satır Ekle (K{rows.length + 1})</span>
-          </button>
-
-          {copiedRow && (
-            <button
-              onClick={pasteRow}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1"
-            >
-              <ClipboardPaste className="w-3.5 h-3.5" />
-              <span>Yapıştır</span>
-            </button>
-          )}
-
-          <div className="text-xs text-slate-400 font-mono ml-auto">
-            Toplam {rows.length} Kurs
-          </div>
-        </div>
-      </div>
-
-      {/* QUICK LOOP PICKER POPOVER */}
-      {popover?.isOpen && rows[popover.rowIndex] && (
-        <QuickLoopPickerPopover
-          isOpen={popover.isOpen}
-          onClose={() => setPopover(null)}
-          position={popover.position}
-          rowIndex={popover.rowIndex}
-          row={rows[popover.rowIndex]}
-          prevRow={popover.rowIndex > 0 ? rows[popover.rowIndex - 1] : null}
-          nextRow={popover.rowIndex < rows.length - 1 ? rows[popover.rowIndex + 1] : null}
-          gbId={popover.gbId}
-          safety={pattern.safety}
-          needleCols={needleCols}
-          onApplyLoopChange={handleApplyLoopChange}
-          onAutoFix={handleAutoFixCell}
-        />
-      )}
+      </section>
     </div>
   );
 };

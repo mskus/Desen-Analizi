@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny catch-all (Pillar 1 & Global Safety Net)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common Security Primitives
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Pattern entity validation blueprint
+    function isValidPattern(data) {
+      return data.keys().hasAll(['id', 'authorId', 'title', 'category']) &&
+        data.id is string && isValidId(data.id) &&
+        data.authorId is string && isValidId(data.authorId) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 150 &&
+        data.category is string && data.category.size() <= 60 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+        (!('difficulty' in data) || (data.difficulty is string && data.difficulty.size() <= 30)) &&
+        (!('thumbnail' in data) || (data.thumbnail is string && data.thumbnail.size() <= 50000)) &&
+        (!('repeatX' in data) || (data.repeatX is number && data.repeatX >= 1 && data.repeatX <= 8)) &&
+        (!('repeatY' in data) || (data.repeatY is number && data.repeatY >= 1 && data.repeatY <= 8));
+    }
+
+    // Shared community patterns collection (Public Read, Open Create, Protected Delete)
+    match /patterns/{patternId} {
+      allow get, list: if true;
+      allow create: if isValidId(patternId) &&
+                       incoming().id == patternId &&
+                       isValidPattern(incoming());
+      allow update: if false;
+      allow delete: if isValidId(patternId);
+    }
+
+    // Read-only connection testing document
+    match /test/{testId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

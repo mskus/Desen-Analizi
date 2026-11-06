@@ -1,11 +1,14 @@
 import { PatternData, GuideBarConfig, SafetyConfig } from '../types';
 
-export const create5In5Out = (length = 32): boolean[] => {
+export const create5In5Out = (length = 96): boolean[] => {
   return Array.from({ length }, (_, i) => (i % 10) < 5);
 };
 
-export const createThreadingArray = (type: string, length = 32): boolean[] => {
+export const createThreadingArray = (type: string, length = 96): boolean[] => {
   const clean = type.toLowerCase();
+  if (clean.includes('boş') || clean.includes('out') || clean.includes('empty')) {
+    return Array.from({ length }, () => false);
+  }
   if (clean.includes('5-5') || clean.includes('5-in 5-out') || clean.includes('5 dolu 5 boş') || clean.includes('5 dolu 5 beş')) {
     return create5In5Out(length);
   }
@@ -20,13 +23,11 @@ export const createThreadingArray = (type: string, length = 32): boolean[] => {
 
 export const defaultSafetyConfig: SafetyConfig = {
   maxSafeShoggingJump: 6, // Maksimum tekte 6 iğne atlama limiti
-  maxAllowedNeedleNumber: 18, // Halı desenleri için standart iğne koordinat aralığı
+  maxAllowedNeedleNumber: 95, // Max 96 iğne (0-95 koordinat aralığı)
   enableClashDetection: true,
   maxSafeRpm: 1000,
   autoClampJumps: true,
   warnOnEmptyNeedleKnitting: true,
-  loopFormationRequired: true, // Makinede ilmek attırma varsayılan aktif
-  detectWrongLoops: true, // Yanlış ilmek tespit ve uyarı sistemi
 };
 
 export const createCarpetGuideBars = (): Record<'GB1' | 'GB2' | 'GB3' | 'GB4' | 'GB5' | 'GB6', GuideBarConfig> => ({
@@ -38,7 +39,7 @@ export const createCarpetGuideBars = (): Record<'GB1' | 'GB2' | 'GB3' | 'GB4' | 
     yarnType: 'Polyester',
     dtex: 167,
     threading: 'Full',
-    threadingArray: createThreadingArray('Full', 32),
+    threadingArray: createThreadingArray('Full', 96),
     tension: 16,
   },
   GB2: {
@@ -112,7 +113,12 @@ export const defaultMachine = {
   efficiency: 85,
 };
 
-import { PHOTO_MACHINE_PATTERN_ROWS } from '../utils/loopEngine';
+const PHOTO_MACHINE_PATTERN_ROWS = [
+  { id: 'p1', courseIndex: 1, stepIndex: 1, GB1: 1, GB2: 0, GB3: 9, GB4: 0, GB5: 2, GB6: 0, notation: '1-0 / 9-10 / 2-1' },
+  { id: 'p2', courseIndex: 2, stepIndex: 2, GB1: 1, GB2: 0, GB3: 10, GB4: 0, GB5: 1, GB6: 0, notation: '0-1 / 10-9 / 1-2' },
+  { id: 'p3', courseIndex: 3, stepIndex: 3, GB1: 0, GB2: 0, GB3: 9, GB4: 0, GB5: 2, GB6: 0, notation: '1-0 / 9-10 / 2-1' },
+  { id: 'p4', courseIndex: 4, stepIndex: 4, GB1: 0, GB2: 0, GB3: 10, GB4: 0, GB5: 1, GB6: 0, notation: '0-1 / 10-9 / 1-2' },
+];
 
 // 10 Adet Halıya Uygun Sıfırdan Oluşturulmuş Desen (Maksimum tekte 6 atlama, GB3 5 dolu 5 boş, GB5-GB6 zemin Full)
 export const patternLibrary: PatternData[] = [

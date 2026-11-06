@@ -9,6 +9,12 @@ import { LibraryTab } from './components/LibraryTab';
 import { ExportImportModal } from './components/ExportImportModal';
 import { SafetySettingsModal } from './components/SafetySettingsModal';
 import { SavePatternModal } from './components/SavePatternModal';
+import {
+  savePatternToCloud,
+  deletePatternFromCloud,
+  subscribeToCloudPatterns,
+  getClientAuthorId,
+} from './services/patternSyncService';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
@@ -23,7 +29,6 @@ export default function App() {
     localStorage.setItem('warpknitt_active_tab', activeTab);
   }, [activeTab]);
 
-  // Custom user patterns stored in localStorage
   const [customPatterns, setCustomPatterns] = useState<PatternData[]>(() => {
     const saved = localStorage.getItem('warpknitt_custom_patterns');
     if (saved) {
@@ -49,7 +54,6 @@ export default function App() {
             }
           });
         }
-        // If cached pattern is from the previous non-carpet library, refresh to the new carpet library
         if (parsed.id.startsWith('pat-')) {
           return patternLibrary[0];
         }
@@ -64,24 +68,61 @@ export default function App() {
     return patternLibrary[0];
   });
 
-  // Undo / Redo history for rows
   const [history, setHistory] = useState<PatternRow[][]>([currentPattern.rows]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
 
-  // Modal states
   const [modalMode, setModalMode] = useState<'export' | 'import' | null>(null);
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState<boolean>(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState<boolean>(false);
 
-  // Save current pattern to localStorage
+  const [fabricWidthCm, setFabricWidthCm] = useState<number>(() => {
+    const saved = localStorage.getItem('warpknitt_fabric_width_cm');
+    if (saved) {
+      const val = parseInt(saved, 10);
+      if (!isNaN(val) && val > 0) return val;
+    }
+    return 410; // Default: 410 cm
+  });
+
+  useEffect(() => {
+    localStorage.setItem('warpknitt_fabric_width_cm', fabricWidthCm.toString());
+  }, [fabricWidthCm]);
+
   useEffect(() => {
     localStorage.setItem('warpknitt_current_pattern', JSON.stringify(currentPattern));
   }, [currentPattern]);
 
-  // Save custom patterns to localStorage
+  const [currentAuthorId] = useState<string>(() => getClientAuthorId());
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
   useEffect(() => {
     localStorage.setItem('warpknitt_custom_patterns', JSON.stringify(customPatterns));
   }, [customPatterns]);
+
+  // Real-time synchronization of shared community patterns
+  useEffect(() => {
+    setIsSyncing(true);
+    const unsub = subscribeToCloudPatterns((cloudPatterns) => {
+      setIsSyncing(false);
+      if (cloudPatterns && cloudPatterns.length > 0) {
+        setCustomPatterns((prev) => {
+          const cloudIds = new Set(cloudPatterns.map((p) => p.id));
+          const localOnly = prev.filter((p) => !cloudIds.has(p.id));
+          // Sync any pre-existing local-only patterns to cloud
+          localOnly.forEach((pat) => {
+            savePatternToCloud(pat).catch((err) => {
+              console.error('Failed to sync pattern to cloud:', err);
+            });
+          });
+          return [...cloudPatterns, ...localOnly];
+        });
+      }
+    });
+
+    return () => {
+      unsub();
+    };
+  }, []);
 
   const handleSelectPattern = (pattern: PatternData) => {
     const safePat: PatternData = {
@@ -97,10 +138,17 @@ export default function App() {
   const handleSavePatternToLibrary = (newPattern: PatternData) => {
     setCustomPatterns((prev) => [newPattern, ...prev]);
     setCurrentPattern(newPattern);
+    setIsSyncing(true);
+    savePatternToCloud(newPattern)
+      .catch((err) => console.error('Cloud save error:', err))
+      .finally(() => setIsSyncing(false));
   };
 
   const handleDeleteCustomPattern = (id: string) => {
     setCustomPatterns((prev) => prev.filter((p) => p.id !== id));
+    deletePatternFromCloud(id).catch((err) => {
+      console.error('Cloud delete error:', err);
+    });
   };
 
   const handleUpdateRows = (newRows: PatternRow[]) => {
@@ -187,29 +235,45 @@ export default function App() {
   const allPatterns = [...customPatterns, ...patternLibrary];
 
   return (
-    <div ref={appRef} className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
-      {/* Top Navbar */}
+    <div ref={appRef} className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         currentPattern={currentPattern}
+        allPatterns={allPatterns}
+        onSelectPattern={(pat) => {
+          const safePat: PatternData = {
+            ...pat,
+            safety: pat.safety || { ...defaultSafetyConfig },
+          };
+          setCurrentPattern(safePat);
+          setHistory([safePat.rows]);
+          setHistoryIndex(0);
+        }}
         onOpenExport={() => setModalMode('export')}
         onOpenImport={() => setModalMode('import')}
         onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
         onOpenSaveToLibrary={() => setIsSaveModalOpen(true)}
         onToggleFullscreen={toggleAppFullscreen}
         isFullscreen={isFullscreen}
+        fabricWidthCm={fabricWidthCm}
+        onChangeFabricWidth={setFabricWidthCm}
+        isSyncing={isSyncing}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 pb-20 md:pb-8">
+      <main className="flex-1 pb-2">
         {activeTab === 'machine' && (
           <MachineSettingsTab
             machine={currentPattern.machine}
             onChangeMachine={handleUpdateMachine}
             guideBars={currentPattern.guideBars}
             onChangeGuideBar={handleUpdateGuideBar}
-            onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
+            safety={currentPattern.safety}
+            onChangeSafety={handleUpdateSafety}
+            rows={currentPattern.rows}
+            onChangeRows={handleUpdateRows}
+            fabricWidthCm={fabricWidthCm}
+            onChangeFabricWidth={setFabricWidthCm}
           />
         )}
 
@@ -226,6 +290,8 @@ export default function App() {
             setActiveTab={setActiveTab}
             onToggleFullscreen={toggleAppFullscreen}
             isFullscreen={isFullscreen}
+            fabricWidthCm={fabricWidthCm}
+            onChangeFabricWidth={setFabricWidthCm}
           />
         )}
 
@@ -240,6 +306,8 @@ export default function App() {
             setActiveTab={setActiveTab}
             onToggleFullscreen={toggleAppFullscreen}
             isFullscreen={isFullscreen}
+            fabricWidthCm={fabricWidthCm}
+            onChangeFabricWidth={setFabricWidthCm}
           />
         )}
 
@@ -250,11 +318,11 @@ export default function App() {
             onSelectPattern={handleSelectPattern}
             onSaveCurrentToLibrary={() => setIsSaveModalOpen(true)}
             onDeletePattern={handleDeleteCustomPattern}
+            currentAuthorId={currentAuthorId}
           />
         )}
       </main>
 
-      {/* Export / Import Modal */}
       <ExportImportModal
         isOpen={modalMode !== null}
         onClose={() => setModalMode(null)}
@@ -271,7 +339,6 @@ export default function App() {
         }}
       />
 
-      {/* Safe Guide Bar Settings Modal */}
       <SafetySettingsModal
         isOpen={isSafetyModalOpen}
         onClose={() => setIsSafetyModalOpen(false)}
@@ -281,7 +348,6 @@ export default function App() {
         onChangeRows={handleUpdateRows}
       />
 
-      {/* Save Pattern to Library Modal */}
       <SavePatternModal
         isOpen={isSaveModalOpen}
         onClose={() => setIsSaveModalOpen(false)}

@@ -1,172 +1,192 @@
 import React from 'react';
-import { ActiveTab, PatternData } from '../types';
+import { ActiveTab, PatternData, GuideBarId } from '../types';
 import {
-  Settings,
-  Table,
-  Eye,
-  BookOpen,
   Download,
   Upload,
-  SlidersHorizontal,
   ShieldCheck,
   BookmarkPlus,
-  Maximize2
+  Maximize2,
+  Minimize2,
+  Folders,
+  Layers,
+  Sliders,
+  Grid,
+  FolderKanban,
+  Cloud,
 } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   currentPattern: PatternData;
+  allPatterns?: PatternData[];
+  onSelectPattern?: (pattern: PatternData) => void;
   onOpenExport: () => void;
   onOpenImport: () => void;
   onOpenSafetySettings?: () => void;
   onOpenSaveToLibrary?: () => void;
   onToggleFullscreen?: () => void;
   isFullscreen?: boolean;
+  fabricWidthCm?: number;
+  onChangeFabricWidth?: (widthCm: number) => void;
+  isSyncing?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
   currentPattern,
+  allPatterns = [],
+  onSelectPattern,
   onOpenExport,
   onOpenImport,
   onOpenSafetySettings,
   onOpenSaveToLibrary,
   onToggleFullscreen,
   isFullscreen,
+  fabricWidthCm = 410,
+  onChangeFabricWidth,
+  isSyncing = false,
 }) => {
-  const tabs: { id: ActiveTab; label: string; icon: React.ElementType }[] = [
-    { id: 'simulation', label: 'Simülasyon', icon: Eye },
-    { id: 'editor', label: 'Editör & Tablo', icon: SlidersHorizontal },
-    { id: 'library', label: 'Kütüphane', icon: BookOpen },
-    { id: 'machine', label: 'Makine', icon: Settings },
+  const tabs: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'simulation', label: '01. Simülasyon', icon: <Layers className="w-3.5 h-3.5" /> },
+    { id: 'editor', label: '02. Editör', icon: <Grid className="w-3.5 h-3.5" /> },
+    { id: 'library', label: '03. Kütüphane', icon: <FolderKanban className="w-3.5 h-3.5" /> },
+    { id: 'machine', label: '04. Makine', icon: <Sliders className="w-3.5 h-3.5" /> },
   ];
 
+  const activeGbCount = (Object.keys(currentPattern.guideBars) as GuideBarId[]).filter(
+    (k) => currentPattern.guideBars[k]?.active
+  ).length;
+
   return (
-    <>
-      {/* Top Header - Minimal & Compact */}
-      <header className="bg-slate-900 border-b border-slate-800 text-slate-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6">
-          <div className="flex items-center justify-between h-13 sm:h-14">
-            {/* Brand & Active Pattern */}
-            <div className="flex items-center space-x-2.5 min-w-0">
-              <span className="font-bold text-sm sm:text-base text-white tracking-tight shrink-0">
-                WarpKnitt
-              </span>
-              <span className="text-slate-600 text-xs hidden sm:inline">|</span>
-              <div className="truncate text-xs text-slate-400">
-                <span className="text-slate-200 font-medium truncate">{currentPattern.title}</span>
-                {currentPattern.createdAt && (
-                  <span className="text-slate-500 text-[10px] ml-1.5 hidden md:inline">
-                    ({currentPattern.createdAt})
-                  </span>
-                )}
-              </div>
-            </div>
+    <header className="bg-[#0F172A] border-b border-slate-800 text-slate-100 sticky top-0 z-40">
+      <div className="max-w-[1600px] mx-auto px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-2">
+        {/* Left: Brand + Single-Line Navigation */}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setActiveTab('simulation')}
+            className="text-xs sm:text-sm font-bold tracking-tight text-white whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            WARPKNITT CAD
+          </button>
 
-            {/* Desktop Navigation Tabs */}
-            <nav className="hidden md:flex items-center space-x-1 bg-slate-950 p-1 rounded-xl border border-slate-800/80">
-              {tabs.map((tab) => {
-                const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                      isActive
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
+          <span className="text-slate-700 hidden sm:inline">|</span>
 
-            {/* Action Tools */}
-            <div className="flex items-center space-x-1 sm:space-x-1.5">
-              {onToggleFullscreen && (
+          <nav className="flex items-center gap-1">
+            {tabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
                 <button
-                  onClick={onToggleFullscreen}
-                  className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium border transition flex items-center space-x-1 ${
-                    isFullscreen
-                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
-                      : 'bg-slate-950 text-slate-300 hover:bg-slate-800 border-slate-800'
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/70'
                   }`}
-                  title="Tam Ekran Modu (Tüm Sekmeler İçinde)"
                 >
-                  <Maximize2 className="w-4 h-4 text-blue-400" />
-                  <span className="hidden lg:inline">{isFullscreen ? 'Çık' : 'Tam Ekran'}</span>
+                  {tab.icon}
+                  <span>{tab.label}</span>
                 </button>
-              )}
-              {onOpenSaveToLibrary && (
-                <button
-                  onClick={onOpenSaveToLibrary}
-                  className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium text-emerald-400 hover:bg-emerald-950/40 border border-transparent hover:border-emerald-800/60 transition flex items-center space-x-1"
-                  title="Deseni Kütüphaneye Kaydet"
-                >
-                  <BookmarkPlus className="w-4 h-4" />
-                  <span className="hidden lg:inline">Kaydet</span>
-                </button>
-              )}
-              {onOpenSafetySettings && (
-                <button
-                  onClick={onOpenSafetySettings}
-                  className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium text-amber-400 hover:bg-amber-950/40 border border-transparent hover:border-amber-800/60 transition flex items-center space-x-1"
-                  title="Güvenli Tarak Menüsü"
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span className="hidden lg:inline">Güvenlik</span>
-                </button>
-              )}
-              <button
-                onClick={onOpenImport}
-                className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 border border-slate-800 transition flex items-center space-x-1"
-                title="İçe Aktar (JSON / CSV)"
-              >
-                <Upload className="w-4 h-4" />
-                <span className="hidden sm:inline">İçe</span>
-              </button>
-              <button
-                onClick={onOpenExport}
-                className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white transition flex items-center space-x-1"
-                title="Dışa Aktar (PNG / JSON / CSV)"
-              >
-                <Download className="w-4 h-4" />
-                <span className="hidden sm:inline">Dışa</span>
-              </button>
-            </div>
-          </div>
+              );
+            })}
+          </nav>
         </div>
-      </header>
 
-      {/* Mobile Fixed Bottom Navigation Bar (Thumb Friendly) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800 backdrop-blur pb-safe">
-        <div className="grid grid-cols-4 h-14">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
+        {/* Right: Quick Pattern Selector + Compact Metrics + Icon Actions */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          {allPatterns.length > 0 && onSelectPattern && (
+            <select
+              id="quick-pattern-select"
+              value={currentPattern.id}
+              onChange={(e) => {
+                const found = allPatterns.find((p) => p.id === e.target.value);
+                if (found) onSelectPattern(found);
+              }}
+              title="Aktif Üretim Deseni"
+              className="bg-[#111827] border border-slate-700 hover:border-slate-600 text-white text-xs font-semibold rounded px-2 py-1 focus:outline-none focus:border-blue-500 max-w-[180px] sm:max-w-[240px] truncate cursor-pointer"
+            >
+              {allPatterns.map((pat) => (
+                <option key={pat.id} value={pat.id}>
+                  {pat.title} ({pat.rows.length}K)
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Compact Fabric Width (Kumaş Eni cm) Input */}
+          {onChangeFabricWidth && (
+            <div className="flex items-center gap-1 bg-[#111827] px-1.5 py-0.5 rounded border border-slate-700 text-xs">
+              <span className="text-[11px] font-semibold text-slate-300 whitespace-nowrap">
+                En (cm):
+              </span>
+              <input
+                type="number"
+                min="50"
+                max="800"
+                step="5"
+                value={fabricWidthCm}
+                onChange={(e) =>
+                  onChangeFabricWidth(Math.max(10, Math.min(1000, parseInt(e.target.value, 10) || 410)))
+                }
+                className="w-14 bg-[#0B0F17] border border-slate-700 rounded px-1 py-0.5 text-center font-mono font-bold text-emerald-400 focus:outline-none focus:border-blue-500 tabular-nums text-xs"
+                title="Kumaş Eni (cm) - Taar ve İğne Limiti Hesaplayıcı"
+              />
+            </div>
+          )}
+
+            {/* Cloud Community Sync Status */}
+            <div
+              className="flex items-center gap-1.5 bg-[#111827] px-2 py-1 rounded border border-slate-700 text-xs"
+              title={isSyncing ? 'Desenler Senkronize Ediliyor...' : 'Bulut Kütüphanesi Çevrimiçi'}
+            >
+              <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'text-amber-400 animate-pulse' : 'text-emerald-400'}`} />
+              <span className="text-[11px] text-slate-300 font-medium hidden sm:inline">
+                {isSyncing ? 'Eşitleniyor' : 'Canlı'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={onOpenImport}
+              title="Dosya Yükle (JSON)"
+              className="p-1.5 bg-[#111827] hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 rounded transition-colors cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenExport}
+              title="Dosya İndir (JSON / CSV)"
+              className="p-1.5 bg-[#111827] hover:bg-slate-800 text-blue-400 border border-slate-700 rounded transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+
+            {onToggleFullscreen && (
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-center justify-center py-1 transition ${
-                  isActive ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+                type="button"
+                onClick={onToggleFullscreen}
+                title={isFullscreen ? 'Tam Ekrandan Çık' : 'Tam Ekran'}
+                className={`p-1.5 rounded border transition-colors cursor-pointer ${
+                  isFullscreen
+                    ? 'bg-blue-600 text-white border-blue-500'
+                    : 'bg-[#111827] text-slate-300 hover:text-white hover:bg-slate-800 border-slate-700'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
-                <span className="text-[10px] mt-0.5 tracking-tight truncate max-w-[58px]">
-                  {tab.label}
-                </span>
+                {isFullscreen ? (
+                  <Minimize2 className="w-3.5 h-3.5" />
+                ) : (
+                  <Maximize2 className="w-3.5 h-3.5" />
+                )}
               </button>
-            );
-          })}
+            )}
         </div>
-      </nav>
-    </>
+      </div>
+    </header>
   );
 };

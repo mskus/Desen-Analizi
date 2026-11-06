@@ -1,0 +1,71 @@
+{
+  "entities": {
+    "Pattern": {
+      "title": "Pattern",
+      "description": "A warp knitting pattern design with guide bar movements and machine configurations.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Unique identifier of the pattern."
+        },
+        "authorId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Unique client author ID of the creator."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Display title or name of the warp knitting pattern."
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "Textile fabric category."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Detailed notes or technical description of the pattern."
+        },
+        "difficulty": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "Technical difficulty level (Kolay, Orta, İleri)."
+        },
+        "thumbnail": {
+          "type": "string",
+          "maxLength": 50000,
+          "description": "Low-resolution base64 thumbnail preview of the pattern."
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "Creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "Last updated timestamp."
+        },
+        "repeatX": {
+          "type": "number",
+          "description": "Horizontal pattern repeat multiplier."
+        },
+        "repeatY": {
+          "type": "number",
+          "description": "Vertical pattern repeat multiplier."
+        }
+      },
+      "required": ["id", "authorId", "title", "category"]
+    }
+  },
+  "firestore": {
+    "/patterns/{patternId}": {
+      "schema": "Pattern",
+      "description": "Shared community repository of warp knitting patterns."
+    }
+  }
+}

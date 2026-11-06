@@ -8,9 +8,7 @@ export const PREF_KEYS = {
   SIM_REPEAT_Y: 'warpknitt_pref_sim_repeat_y',
   SIM_COURSE_PITCH: 'warpknitt_pref_sim_course_pitch',
   SIM_SHOW_STEP_NUMBERS: 'warpknitt_pref_sim_show_step_numbers',
-  SIM_SHOW_LOOP_CURVES: 'warpknitt_pref_sim_show_loop_curves',
   SIM_SHOW_PORE_MESH: 'warpknitt_pref_sim_show_pore_mesh',
-  SIM_SHOW_LOOP_TYPES: 'warpknitt_pref_sim_show_loop_types',
   SIM_ISOLATE_BAR: 'warpknitt_pref_sim_isolate_bar',
   SIM_EDITING_GB: 'warpknitt_pref_sim_editing_gb',
 
@@ -19,9 +17,6 @@ export const PREF_KEYS = {
   EDITOR_ACTIVE_GB: 'warpknitt_pref_editor_active_gb',
   EDITOR_LIVE_PREVIEW: 'warpknitt_pref_editor_live_preview',
   EDITOR_LIVE_FABRIC: 'warpknitt_pref_editor_live_fabric',
-  EDITOR_REQUIRE_LOOP: 'warpknitt_pref_editor_require_loop', // "Makinemde ilmek attırmak gerekiyor"
-  EDITOR_SHOW_LOOP_BADGES: 'warpknitt_pref_editor_show_loop_badges',
-  EDITOR_SELECTED_LOOP_PRESET: 'warpknitt_pref_editor_loop_preset',
   EDITOR_AUTO_EXPAND_COURSES: 'warpknitt_pref_editor_auto_expand_courses',
 } as const;
 

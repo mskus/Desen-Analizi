@@ -1,19 +1,32 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { PatternData, GuideBarId, GuideBarConfig, SafetyConfig, PatternRow } from '../types';
+import { calculateGuideBarMetrics, GuideBarCalcBadge } from '../utils/fabricCalculator';
 import {
-  Layers,
   ZoomIn,
   ZoomOut,
   Download,
-  RotateCcw,
-  Sparkles,
-  ShieldCheck,
-  ShieldAlert,
-  Sliders,
-  Sun,
-  Moon,
-  Info,
-  Maximize2
+  Share2,
+  Maximize2,
+  Minimize2,
+  Copy,
+  Check,
+  Plus,
+  Minus,
+  Trash2,
+  Hash,
+  LayoutTemplate,
+  Wand2,
+  Eye,
+  ArrowRightLeft,
+  ArrowUpDown,
+  MoveHorizontal,
+  MoveVertical,
+  Grid3X3,
+  Activity,
+  CircleDot,
+  FileCode2,
+  Layers,
+  Grid,
 } from 'lucide-react';
 
 interface SimulationTabProps {
@@ -26,6 +39,8 @@ interface SimulationTabProps {
   setActiveTab?: (tab: any) => void;
   onToggleFullscreen?: () => void;
   isFullscreen?: boolean;
+  fabricWidthCm?: number;
+  onChangeFabricWidth?: (widthCm: number) => void;
 }
 
 type SimulationDisplayMode = 'dual' | 'technical' | 'fabric';
@@ -35,10 +50,11 @@ const SIMULATION_SETTINGS_KEY = 'warpknitt_simulation_settings';
 interface StoredSimSettings {
   displayMode?: SimulationDisplayMode;
   paperTheme?: 'dark' | 'white';
+  repeatX?: number;
   repeatY?: number;
   showStepNumbers?: boolean;
-  showLoopCurves?: boolean;
   showPoreMesh?: boolean;
+  showNeedleDots?: boolean;
   isolateActiveBar?: boolean;
   editingGbId?: GuideBarId;
   visibleBars?: Record<GuideBarId, boolean>;
@@ -59,15 +75,26 @@ const getInitialSimSettings = (): StoredSimSettings => {
 export const SimulationTab: React.FC<SimulationTabProps> = ({
   pattern,
   onChangeGuideBar,
+  onChangeRows,
   onChangeSafety,
-  onOpenSafetySettings,
-  activeTab,
-  setActiveTab,
   onToggleFullscreen,
   isFullscreen: externalFs,
+  fabricWidthCm = 410,
+  onChangeFabricWidth,
 }) => {
   const simWrapperRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
+  // Manual Quick Threading Pattern Inputs
+  const [manualInCount, setManualInCount] = useState<number>(3);
+  const [manualOutCount, setManualOutCount] = useState<number>(2);
+  const [manualStartMode, setManualStartMode] = useState<'filled' | 'empty'>('filled');
+  const [customRuleText, setCustomRuleText] = useState<string>('');
+
+  // Mouse / Touch Drag-Select for Batch Needle Toggle
+  const isMouseDownRef = useRef<boolean>(false);
+  const dragTargetValRef = useRef<boolean>(true);
 
   const toggleSimFullscreen = () => {
     if (onToggleFullscreen) {
@@ -83,21 +110,21 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       setIsFullscreen(false);
     }
   };
+
   const savedSettings = getInitialSimSettings();
 
   const [displayMode, setDisplayMode] = useState<SimulationDisplayMode>(
     savedSettings.displayMode || 'fabric'
   );
 
-  // Maintain local guideBars state for 0ms instantaneous canvas reflection
-  const [guideBarsState, setGuideBarsState] = useState<Record<GuideBarId, GuideBarConfig>>(pattern.guideBars);
+  const [guideBarsState, setGuideBarsState] = useState<Record<GuideBarId, GuideBarConfig>>(
+    pattern.guideBars
+  );
 
-  // Sync when pattern prop updates from parent
   useEffect(() => {
     setGuideBarsState(pattern.guideBars);
   }, [pattern.guideBars, pattern.rows]);
 
-  // Touch pinch-to-zoom ref
   const touchDistRef = useRef<number | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -120,7 +147,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       if (Math.abs(delta) > 8) {
         const zoomFactor = delta > 0 ? 0.04 : -0.04;
         setIsAutoZoom(false);
-        setZoom((prev) => Math.max(0.4, Math.min(2.5, prev + zoomFactor)));
+        setZoom((prev) => Math.max(0.25, Math.min(2.5, prev + zoomFactor)));
         touchDistRef.current = newDist;
       }
     }
@@ -130,28 +157,28 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     touchDistRef.current = null;
   };
 
-  // Isolate active editing guide bar in simulation canvas
-  const [isolateActiveBar, setIsolateActiveBar] = useState<boolean>(savedSettings.isolateActiveBar ?? false);
-
-  // Currently selected guide bar for in-simulation threading editor
-  const [editingGbId, setEditingGbId] = useState<GuideBarId>(savedSettings.editingGbId || 'GB3');
+  const [isolateActiveBar, setIsolateActiveBar] = useState<boolean>(
+    savedSettings.isolateActiveBar ?? false
+  );
+  const [editingGbId, setEditingGbId] = useState<GuideBarId>(
+    savedSettings.editingGbId || 'GB3'
+  );
   const [binaryThreadingInput, setBinaryThreadingInput] = useState<string>('');
+  const [paperTheme] = useState<'dark' | 'white'>(savedSettings.paperTheme || 'dark');
 
-  // Paper mode: 'dark' (CAD) or 'white' (Classical Karl Mayer point paper as in user image)
-  const [paperTheme, setPaperTheme] = useState<'dark' | 'white'>(savedSettings.paperTheme || 'dark');
-
-  // Layer switches
   const [showStepNumbers, setShowStepNumbers] = useState(savedSettings.showStepNumbers ?? true);
-  const [showLoopCurves, setShowLoopCurves] = useState(savedSettings.showLoopCurves ?? true);
   const [showPoreMesh, setShowPoreMesh] = useState(savedSettings.showPoreMesh ?? true);
+  const [showNeedleDots, setShowNeedleDots] = useState<boolean>(savedSettings.showNeedleDots ?? true);
+  const [showBarGaps] = useState<boolean>(true);
+  const [showEmptyLoopInfo] = useState<boolean>(true);
 
-  // Repeat and dimension controls (2x 3x 4x tablo uzasın, yükseklik & zoom)
+  // Horizontal & Vertical Pattern Repeat
+  const [repeatX, setRepeatX] = useState<number>(savedSettings.repeatX ?? 1);
   const [repeatY, setRepeatY] = useState<number>(savedSettings.repeatY ?? 2);
   const [isAutoZoom, setIsAutoZoom] = useState<boolean>(savedSettings.isAutoZoom ?? true);
   const [zoom, setZoom] = useState<number>(savedSettings.zoom ?? 1);
-  const [customCoursePitch, setCustomCoursePitch] = useState<number>(36);
+  const [customCoursePitch] = useState<number>(36);
 
-  // Guide bar visibility toggles (allows isolating GB3 or any specific bar)
   const [visibleBars, setVisibleBars] = useState<Record<GuideBarId, boolean>>(
     savedSettings.visibleBars || {
       GB1: true,
@@ -168,10 +195,52 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   const techContainerRef = useRef<HTMLDivElement | null>(null);
   const fabricContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // DYNAMIC NEEDLE COUNT: Tied directly to pattern.safety.maxAllowedNeedleNumber!
-  const needleCols = Math.max(8, Math.min(48, pattern.safety?.maxAllowedNeedleNumber || 18));
-  const needlePitch = 38;
-  const coursePitch = customCoursePitch;
+  const [containerWidth, setContainerWidth] = useState<number>(1200);
+
+  useEffect(() => {
+    const updateWidth = () => {
+      const parent = fabricContainerRef.current || techContainerRef.current || simWrapperRef.current;
+      if (parent) {
+        const w = parent.clientWidth;
+        if (w > 0) {
+          setContainerWidth(Math.max(600, w - 8));
+        }
+      }
+    };
+    updateWidth();
+
+    // Use ResizeObserver for instant responsive width on tab switch / layout shifts
+    let ro: ResizeObserver | null = null;
+    const target = simWrapperRef.current;
+    if (typeof ResizeObserver !== 'undefined' && target) {
+      ro = new ResizeObserver(() => {
+        updateWidth();
+      });
+      ro.observe(target);
+    }
+
+    const t1 = setTimeout(updateWidth, 30);
+    const t2 = setTimeout(updateWidth, 120);
+    const t3 = setTimeout(updateWidth, 300);
+    window.addEventListener('resize', updateWidth);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', updateWidth);
+    };
+  }, [displayMode]);
+
+  // Base needle count (up to 128) and total needles with horizontal repeat (repeatX)
+  const needleCols = Math.max(4, Math.min(128, (pattern.safety?.maxAllowedNeedleNumber || 18) + 1));
+  const [needleInputText, setNeedleInputText] = useState<string>(String(needleCols));
+
+  useEffect(() => {
+    setNeedleInputText(String(needleCols));
+  }, [needleCols]);
+  const totalNeedles = needleCols * repeatX;
+  const baseNeedlePitch = totalNeedles > 96 ? 14 : totalNeedles > 64 ? 18 : totalNeedles > 32 ? 24 : 34;
 
   const currentGuideBars = guideBarsState || pattern.guideBars;
   const activeBars = (Object.keys(currentGuideBars) as GuideBarId[]).filter(
@@ -181,45 +250,87 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   const rows = pattern.rows;
   const totalCourses = Math.max(1, rows.length * repeatY);
 
-  // Auto calculate canvas heights and widths so table extends dynamically with 2x 3x 4x and needleCols!
-  const canvasHeight = Math.max(620, totalCourses * coursePitch + 170);
-  const techCanvasWidth = needleCols * needlePitch + 340;
-  const fabricCanvasWidth = needleCols * needlePitch + 160;
+  // Guide Bar Calculation Engine: Fabric width, needle limit, threading repeat, and report repeat counts
+  const guideBarCalculations = useMemo(() => {
+    const map: Partial<Record<GuideBarId, ReturnType<typeof calculateGuideBarMetrics>>> = {};
+    (Object.keys(currentGuideBars) as GuideBarId[]).forEach((id) => {
+      const gb = currentGuideBars[id];
+      if (gb) {
+        map[id] = calculateGuideBarMetrics(
+          id,
+          gb,
+          rows,
+          pattern.machine,
+          pattern.safety,
+          fabricWidthCm
+        );
+      }
+    });
+    return map;
+  }, [currentGuideBars, rows, pattern.machine, pattern.safety, fabricWidthCm]);
 
-  // Fit to screen height auto calculation (*Sığdır dikey olmalı)
+  // Balanced, tight left and right padding (36px left, 36px right)
+  const padX = 36;
+  const startY = 70;
+
+  // Single repeat base needle width
+  const baseReportWidth = Math.max(containerWidth, (needleCols - 1) * baseNeedlePitch + padX * 2);
+  const baseNeedlePitchEffective = Math.max(baseNeedlePitch, (baseReportWidth - padX * 2) / Math.max(1, needleCols - 1));
+
+  // When repeatX is 1x, 2x, 3x, 4x, the fabric canvas width scales proportionally
+  const techCanvasWidth = Math.max(containerWidth, (totalNeedles - 1) * baseNeedlePitchEffective + padX * 2);
+  const fabricCanvasWidth = Math.max(containerWidth, (totalNeedles - 1) * baseNeedlePitchEffective + padX * 2);
+
+  // Needle pitch remains identical across 1x-4x so loops preserve exact proportion without stretching or shrinking
+  const needlePitch = baseNeedlePitchEffective;
+
+  // Maintain fixed true-to-life aspect ratio (course pitch scales proportionally with needle pitch so loop geometry never distorts)
+  const coursePitch = Math.round(needlePitch * 1.35);
+
+  const canvasHeight = Math.max(520, startY + totalCourses * coursePitch + 28);
+
+  // Fit vertically to screen height
   const calculateSimFitZoom = useCallback(() => {
     if (!isAutoZoom) return;
-    const container = techContainerRef.current || fabricContainerRef.current;
-    if (!container) return;
+    const container = fabricContainerRef.current || techContainerRef.current;
+    const isFs = isFullscreen || externalFs || !!document.fullscreenElement;
+    const availHeight = isFs
+      ? window.innerHeight - 80
+      : container && container.clientHeight > 0
+      ? container.clientHeight - 16
+      : 640;
 
-    const availHeight = container.clientHeight > 0 ? container.clientHeight - 20 : 650;
     if (availHeight > 0 && canvasHeight > 0) {
       const fit = availHeight / canvasHeight;
-      const clamped = Math.max(0.35, Math.min(1.5, Math.floor(fit * 100) / 100));
+      const clamped = Math.max(0.2, Math.min(1.5, Math.floor(fit * 100) / 100));
       setZoom(clamped);
     }
-  }, [isAutoZoom, canvasHeight]);
+  }, [isAutoZoom, canvasHeight, isFullscreen, externalFs]);
 
   useEffect(() => {
     calculateSimFitZoom();
-  }, [calculateSimFitZoom, needleCols, displayMode]);
+  }, [calculateSimFitZoom, needleCols, repeatX, repeatY, displayMode, isFullscreen, externalFs]);
 
   useEffect(() => {
     if (!isAutoZoom) return;
     const handleResize = () => calculateSimFitZoom();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener('fullscreenchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('fullscreenchange', handleResize);
+    };
   }, [isAutoZoom, calculateSimFitZoom]);
 
-  // Save settings to localStorage on state changes
   useEffect(() => {
     const settingsToSave: StoredSimSettings = {
       displayMode,
       paperTheme,
+      repeatX,
       repeatY,
       showStepNumbers,
-      showLoopCurves,
       showPoreMesh,
+      showNeedleDots,
       isolateActiveBar,
       editingGbId,
       visibleBars,
@@ -230,10 +341,11 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   }, [
     displayMode,
     paperTheme,
+    repeatX,
     repeatY,
     showStepNumbers,
-    showLoopCurves,
     showPoreMesh,
+    showNeedleDots,
     isolateActiveBar,
     editingGbId,
     visibleBars,
@@ -241,7 +353,6 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     zoom,
   ]);
 
-  // Current editing guide bar config and threading array
   const currentGb = currentGuideBars[editingGbId] || currentGuideBars.GB3 || currentGuideBars.GB1;
   const currentThreading = Array.from({ length: needleCols }, (_, i) => {
     if (currentGb?.threadingArray && typeof currentGb.threadingArray[i] === 'boolean') {
@@ -250,43 +361,81 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     return i % 2 === 0;
   });
 
-  // Sync binary string when editingGbId or currentThreading changes
   useEffect(() => {
     const binStr = currentThreading.map((b) => (b ? '1' : '0')).join('');
     setBinaryThreadingInput(binStr);
   }, [editingGbId, currentGb?.threadingArray, needleCols]);
 
-  // Toggle single needle threading directly inside simulation with instant redraw
+  const scheduleRedraw = useCallback(
+    (overrideBars?: Record<GuideBarId, GuideBarConfig>) => {
+      requestAnimationFrame(() => {
+        if (displayMode === 'technical' || displayMode === 'dual') {
+          drawTechnicalDiagram(overrideBars);
+        }
+        if (displayMode === 'fabric' || displayMode === 'dual') {
+          drawFabricSimulation(overrideBars);
+        }
+      });
+    },
+    [displayMode]
+  );
+
+  const handleSetNeedleBatch = useCallback(
+    (indices: number[], targetState: boolean) => {
+      const updatedArray = [...currentThreading];
+      let changed = false;
+      indices.forEach((idx) => {
+        if (idx >= 0 && idx < needleCols && updatedArray[idx] !== targetState) {
+          updatedArray[idx] = targetState;
+          changed = true;
+        }
+      });
+      if (!changed) return;
+
+      const binStr = updatedArray.map((b) => (b ? '1' : '0')).join('');
+      setBinaryThreadingInput(binStr);
+
+      const updatedGb: GuideBarConfig = {
+        ...currentGb,
+        threadingArray: updatedArray,
+        threading: 'Özel',
+      };
+
+      const newGuideBars: Record<GuideBarId, GuideBarConfig> = {
+        ...currentGuideBars,
+        [editingGbId]: updatedGb,
+      };
+
+      setGuideBarsState(newGuideBars);
+      onChangeGuideBar(editingGbId, updatedGb);
+      scheduleRedraw(newGuideBars);
+    },
+    [currentThreading, needleCols, currentGb, currentGuideBars, editingGbId, onChangeGuideBar, scheduleRedraw]
+  );
+
   const handleToggleNeedle = (nIdx: number) => {
-    const updatedArray = [...currentThreading];
-    updatedArray[nIdx] = !updatedArray[nIdx];
-
-    const binStr = updatedArray.map((b) => (b ? '1' : '0')).join('');
-    setBinaryThreadingInput(binStr);
-
-    const updatedGb: GuideBarConfig = {
-      ...currentGb,
-      threadingArray: updatedArray,
-      threading: 'Özel Dizim',
-    };
-
-    const newGuideBars: Record<GuideBarId, GuideBarConfig> = {
-      ...currentGuideBars,
-      [editingGbId]: updatedGb,
-    };
-
-    setGuideBarsState(newGuideBars);
-    onChangeGuideBar(editingGbId, updatedGb);
-
-    scheduleRedraw(newGuideBars);
+    handleSetNeedleBatch([nIdx], !currentThreading[nIdx]);
   };
 
-  // Apply predefined threading preset with instant redraw
-  const handleApplyPreset = (preset: 'full' | 'clear' | '5-5' | '1-1' | '1-2' | '1-3' | '2-2' | 'invert') => {
+  useEffect(() => {
+    const handleMouseUp = () => {
+      isMouseDownRef.current = false;
+    };
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('pointerup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointerup', handleMouseUp);
+    };
+  }, []);
+
+  const handleApplyPreset = (
+    preset: 'full' | 'clear' | '5-5' | '1-1' | '1-2' | '1-3' | '2-2' | 'invert'
+  ) => {
     const newArr = Array.from({ length: needleCols }, (_, i) => {
       if (preset === 'full') return true;
       if (preset === 'clear') return false;
-      if (preset === '5-5') return (i % 10) < 5;
+      if (preset === '5-5') return i % 10 < 5;
       if (preset === '1-1') return i % 2 === 0;
       if (preset === '1-2') return i % 3 === 0;
       if (preset === '1-3') return i % 4 === 0;
@@ -296,14 +445,14 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     });
 
     const labelMap: Record<string, string> = {
-      full: 'Full (Tam Dolu)',
-      clear: 'Tümü Boş (Temiz)',
-      '5-5': '5 Dolu 5 Boş (5-in 5-out)',
-      '1-1': '1-in 1-out (1 Dolu 1 Boş)',
-      '1-2': '1-in 2-out (1 Dolu 2 Boş)',
-      '1-3': '1-in 3-out (1 Dolu 3 Boş)',
-      '2-2': '2-in 2-out (2 Dolu 2 Boş)',
-      invert: 'Ters Dizim',
+      full: 'Full',
+      clear: 'Boş',
+      '5-5': '5-5',
+      '1-1': '1-1',
+      '1-2': '1-2',
+      '1-3': '1-3',
+      '2-2': '2-2',
+      invert: 'Ters',
     };
 
     setBinaryThreadingInput(newArr.map((b) => (b ? '1' : '0')).join(''));
@@ -311,7 +460,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     const updatedGb: GuideBarConfig = {
       ...currentGb,
       threadingArray: newArr,
-      threading: labelMap[preset] || 'Özel Dizim',
+      threading: labelMap[preset] || 'Özel',
     };
 
     const newGuideBars: Record<GuideBarId, GuideBarConfig> = {
@@ -321,11 +470,120 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
 
     setGuideBarsState(newGuideBars);
     onChangeGuideBar(editingGbId, updatedGb);
-
     scheduleRedraw(newGuideBars);
   };
 
-  // Binary text input change with instant redraw
+  const handleApplyManualInOut = () => {
+    const inCnt = Math.max(0, Math.min(96, manualInCount));
+    const outCnt = Math.max(0, Math.min(96, manualOutCount));
+    const cycle = Math.max(1, inCnt + outCnt);
+
+    const newArr = Array.from({ length: needleCols }, (_, i) => {
+      const mod = i % cycle;
+      if (manualStartMode === 'filled') {
+        return mod < inCnt;
+      } else {
+        // Start with Empty (Boş) needles first
+        return mod >= outCnt;
+      }
+    });
+
+    setBinaryThreadingInput(newArr.map((b) => (b ? '1' : '0')).join(''));
+
+    const updatedGb: GuideBarConfig = {
+      ...currentGb,
+      threadingArray: newArr,
+      threading: manualStartMode === 'filled' ? `${inCnt}D/${outCnt}B` : `${outCnt}B/${inCnt}D`,
+    };
+
+    const newGuideBars: Record<GuideBarId, GuideBarConfig> = {
+      ...currentGuideBars,
+      [editingGbId]: updatedGb,
+    };
+
+    setGuideBarsState(newGuideBars);
+    onChangeGuideBar(editingGbId, updatedGb);
+    scheduleRedraw(newGuideBars);
+  };
+
+  const handleApplyCustomRuleText = () => {
+    const trimmed = customRuleText.trim();
+    if (!trimmed) return;
+
+    let newArr: boolean[] = [];
+    if (/^[01]+$/.test(trimmed)) {
+      newArr = Array.from({ length: needleCols }, (_, i) => trimmed[i % trimmed.length] === '1');
+    } else {
+      const parts = trimmed
+        .split(/[-.,/\s]+/)
+        .map((n) => parseInt(n, 10))
+        .filter((n) => !isNaN(n) && n >= 0);
+
+      if (parts.length > 0) {
+        const patternUnit: boolean[] = [];
+        const startFilled = manualStartMode === 'filled' && !trimmed.toLowerCase().startsWith('b');
+        parts.forEach((count, idx) => {
+          const isFilled = startFilled ? idx % 2 === 0 : idx % 2 === 1;
+          for (let k = 0; k < count; k++) {
+            patternUnit.push(isFilled);
+          }
+        });
+        const unitLen = Math.max(1, patternUnit.length);
+        newArr = Array.from({ length: needleCols }, (_, i) => patternUnit[i % unitLen]);
+      }
+    }
+
+    if (newArr.length === 0) return;
+
+    setBinaryThreadingInput(newArr.map((b) => (b ? '1' : '0')).join(''));
+
+    const updatedGb: GuideBarConfig = {
+      ...currentGb,
+      threadingArray: newArr,
+      threading: `Özel (${trimmed})`,
+    };
+
+    const newGuideBars: Record<GuideBarId, GuideBarConfig> = {
+      ...currentGuideBars,
+      [editingGbId]: updatedGb,
+    };
+
+    setGuideBarsState(newGuideBars);
+    onChangeGuideBar(editingGbId, updatedGb);
+    scheduleRedraw(newGuideBars);
+  };
+
+  const handleCopyThreadingToTarget = (targetId: GuideBarId | 'ALL') => {
+    const srcConfig = currentGuideBars[editingGbId];
+    if (!srcConfig) return;
+
+    const updatedMap = { ...currentGuideBars };
+    const targets: GuideBarId[] =
+      targetId === 'ALL'
+        ? activeBars.filter((id) => id !== editingGbId)
+        : [targetId];
+
+    targets.forEach((tId) => {
+      const updatedGb: GuideBarConfig = {
+        ...currentGuideBars[tId],
+        threading: srcConfig.threading,
+        threadingArray: [...currentThreading],
+      };
+      updatedMap[tId] = updatedGb;
+      onChangeGuideBar(tId, updatedGb);
+    });
+
+    setGuideBarsState(updatedMap);
+    scheduleRedraw(updatedMap);
+
+    setCopyFeedback(
+      targetId === 'ALL'
+        ? `${editingGbId} dizilimi tüm aktif taraklara kopyalandı.`
+        : `${editingGbId} dizilimi ${targetId} tarağına kopyalandı.`
+    );
+    setTimeout(() => setCopyFeedback(null), 2000);
+  };
+
   const handleBinaryInput = (val: string) => {
     const clean = val.replace(/[^01]/g, '').slice(0, needleCols);
     setBinaryThreadingInput(clean);
@@ -338,7 +596,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     const updatedGb: GuideBarConfig = {
       ...currentGb,
       threadingArray: newArr,
-      threading: 'Özel Dizim',
+      threading: 'Özel',
     };
 
     const newGuideBars: Record<GuideBarId, GuideBarConfig> = {
@@ -348,39 +606,85 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
 
     setGuideBarsState(newGuideBars);
     onChangeGuideBar(editingGbId, updatedGb);
-
     scheduleRedraw(newGuideBars);
   };
 
-  // Safety checks calculation
-  const safety = pattern.safety;
-  const safetyWarnings: string[] = [];
-  rows.forEach((r, rIdx) => {
-    if (rIdx > 0) {
-      activeBars.forEach((gbId) => {
-        const jump = Math.abs(r[gbId] - rows[rIdx - 1][gbId]);
-        if (jump > safety.maxSafeShoggingJump) {
-          safetyWarnings.push(
-            `Kurs ${r.courseIndex}, ${gbId}: Atlama ${jump} iğne (Sınır: ${safety.maxSafeShoggingJump})`
-          );
+  const addRow = () => {
+    if (!onChangeRows) return;
+    const lastRow = rows[rows.length - 1] || {
+      GB1: 0,
+      GB2: 0,
+      GB3: 0,
+      GB4: 0,
+      GB5: 0,
+      GB6: 0,
+    };
+    const newRow: PatternRow = {
+      id: 'row-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      courseIndex: rows.length + 1,
+      GB1: lastRow.GB1,
+      GB2: lastRow.GB2,
+      GB3: lastRow.GB3,
+      GB4: lastRow.GB4,
+      GB5: lastRow.GB5,
+      GB6: lastRow.GB6,
+    };
+    onChangeRows([...rows, newRow]);
+  };
+
+  const deleteLastRow = () => {
+    if (!onChangeRows || rows.length <= 1) return;
+    onChangeRows(rows.slice(0, -1));
+  };
+
+  // Helper to draw Needle Header + Filled/Empty (Dolu/Boş) Indicator Dots on both Technical & Fabric canvases
+  const drawNeedleHeaderAndThreadingDots = (
+    ctx: CanvasRenderingContext2D,
+    gbMap: Record<GuideBarId, GuideBarConfig>,
+    barsToDisplay: GuideBarId[],
+    isWhite: boolean
+  ) => {
+    ctx.font = 'bold 10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+
+    for (let n = 0; n < totalNeedles; n++) {
+      const nx = padX + n * needlePitch;
+      const baseNeedle = n % needleCols;
+      ctx.fillStyle = isWhite ? '#475569' : '#94a3b8';
+      ctx.fillText(`İ${baseNeedle}`, nx, startY - 48);
+
+      barsToDisplay.forEach((gbId, gbIdx) => {
+        const gb = gbMap[gbId];
+        if (!gb) return;
+        const barOpacity = Math.max(0.1, Math.min(1.0, gb.opacity ?? 1.0));
+        const isThreaded =
+          gb.threadingArray && typeof gb.threadingArray[baseNeedle] === 'boolean'
+            ? gb.threadingArray[baseNeedle]
+            : baseNeedle % 2 === 0;
+        const py = startY - 34 + gbIdx * 8.5;
+        const isEdited = gbId === editingGbId;
+
+        ctx.save();
+        ctx.globalAlpha = barOpacity;
+        ctx.fillStyle = isThreaded ? gb.color : isWhite ? '#e2e8f0' : '#1e293b';
+        ctx.beginPath();
+        ctx.arc(nx, py, isEdited ? (isThreaded ? 4 : 2.8) : isThreaded ? 2.8 : 1.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (isThreaded) {
+          ctx.strokeStyle = isEdited ? '#ffffff' : isWhite ? '#0f172a' : '#ffffff';
+          ctx.lineWidth = isEdited ? 1.4 : 0.7;
+          ctx.stroke();
+        } else if (isEdited) {
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 1;
+          ctx.stroke();
         }
+        ctx.restore();
       });
     }
-  });
+  };
 
-  // Unified redraw scheduler - only redraws what's visible according to displayMode
-  const scheduleRedraw = useCallback((overrideBars?: Record<GuideBarId, GuideBarConfig>) => {
-    requestAnimationFrame(() => {
-      if (displayMode === 'technical' || displayMode === 'dual') {
-        drawTechnicalDiagram(overrideBars);
-      }
-      if (displayMode === 'fabric' || displayMode === 'dual') {
-        drawFabricSimulation(overrideBars);
-      }
-    });
-  }, [displayMode]);
-
-  // 1. Draw Technical Warp Knitting Point Paper Diagram (Rendered ONLY when visible)
   const drawTechnicalDiagram = (overrideGuideBars?: Record<GuideBarId, GuideBarConfig>) => {
     if (displayMode !== 'dual' && displayMode !== 'technical') return;
 
@@ -394,69 +698,33 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     const gbMap = overrideGuideBars || guideBarsState || pattern.guideBars;
     const isWhite = paperTheme === 'white';
 
-    // Background: Technical white paper or CAD dark blue
     ctx.fillStyle = isWhite ? '#ffffff' : '#080d1a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const startX = 70;
-    const startY = 85;
+    const barsToDisplay = isolateActiveBar
+      ? [editingGbId]
+      : activeBars.filter((id) => visibleBars[id] !== false);
 
-    // A. Needles Header
-    ctx.font = 'bold 11px monospace';
-    ctx.textAlign = 'center';
+    // Draw needle numbers & Dolu/Boş dots
+    drawNeedleHeaderAndThreadingDots(ctx, gbMap, barsToDisplay, isWhite);
 
-    for (let n = 0; n < needleCols; n++) {
-      const nx = startX + n * needlePitch;
-      ctx.fillStyle = isWhite ? '#475569' : '#94a3b8';
-      ctx.fillText(`İ${n}`, nx, startY - 42);
-
-      // Threading status dots for each active bar directly atop each needle
-      const barsToDisplay = isolateActiveBar ? [editingGbId] : activeBars;
-      barsToDisplay.forEach((gbId, gbIdx) => {
-        const gb = gbMap[gbId];
-        if (!gb) return;
-        const isThreaded = gb.threadingArray && typeof gb.threadingArray[n] === 'boolean'
-          ? gb.threadingArray[n]
-          : n % 2 === 0;
-        const py = startY - 26 + gbIdx * 9;
-        const isEdited = gbId === editingGbId;
-
-        ctx.fillStyle = isThreaded ? gb.color : isWhite ? '#e2e8f0' : '#1e293b';
-        ctx.beginPath();
-        ctx.arc(nx, py, isEdited ? (isThreaded ? 4.5 : 3) : isThreaded ? 3 : 1.8, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (isThreaded) {
-          ctx.strokeStyle = isEdited ? '#ffffff' : isWhite ? '#0f172a' : '#ffffff';
-          ctx.lineWidth = isEdited ? 1.5 : 0.8;
-          ctx.stroke();
-        } else if (isEdited) {
-          ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
-      });
-    }
-
-    // Needle wale vertical lines (Batched into one draw call)
     ctx.strokeStyle = isWhite ? '#e2e8f0' : '#1e293b';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let n = 0; n < needleCols; n++) {
-      const nx = startX + n * needlePitch;
-      ctx.moveTo(nx, startY - 5);
-      ctx.lineTo(nx, startY + totalCourses * coursePitch + 15);
+    for (let n = 0; n < totalNeedles; n++) {
+      const nx = padX + n * needlePitch;
+      ctx.moveTo(nx, startY - 4);
+      ctx.lineTo(nx, startY + totalCourses * coursePitch + 10);
     }
     ctx.stroke();
 
-    // B. Horizontal Course Grid Lines (Batched into major and minor lines)
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = isWhite ? '#94a3b8' : '#1e3a8a';
     ctx.beginPath();
     for (let c = 0; c <= totalCourses; c += rows.length) {
       const cy = startY + c * coursePitch;
-      ctx.moveTo(startX - 20, cy);
-      ctx.lineTo(startX + (needleCols - 1) * needlePitch + 20, cy);
+      ctx.moveTo(padX - 10, cy);
+      ctx.lineTo(padX + (totalNeedles - 1) * needlePitch + 10, cy);
     }
     ctx.stroke();
 
@@ -466,30 +734,33 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     for (let c = 0; c <= totalCourses; c++) {
       if (c % rows.length === 0) continue;
       const cy = startY + c * coursePitch;
-      ctx.moveTo(startX - 20, cy);
-      ctx.lineTo(startX + (needleCols - 1) * needlePitch + 20, cy);
+      ctx.moveTo(padX - 10, cy);
+      ctx.lineTo(padX + (totalNeedles - 1) * needlePitch + 10, cy);
     }
     ctx.stroke();
 
-    // Course Labels
-    ctx.font = 'bold 11px monospace';
-    ctx.textAlign = 'right';
+    ctx.font = 'bold 10px "JetBrains Mono", monospace';
     for (let c = 0; c < totalCourses; c++) {
       const cy = startY + c * coursePitch;
       const courseNum = c + 1;
-      ctx.fillStyle = c % rows.length === 0
-        ? (isWhite ? '#0284c7' : '#38bdf8')
-        : (isWhite ? '#64748b' : '#64748b');
-      ctx.fillText(`K${courseNum}`, startX - 26, cy + coursePitch / 2 + 4);
+      ctx.fillStyle =
+        c % rows.length === 0 ? (isWhite ? '#0284c7' : '#38bdf8') : '#64748b';
+      ctx.textAlign = 'right';
+      ctx.fillText(`K${courseNum}`, padX - 12, cy + coursePitch / 2 + 4);
+      ctx.textAlign = 'left';
+      ctx.fillText(
+        `K${courseNum}`,
+        padX + (totalNeedles - 1) * needlePitch + 12,
+        cy + coursePitch / 2 + 4
+      );
     }
 
-    // C. Needle Trick Points (Pins) - Batched into a single fill call for 100x performance
     ctx.fillStyle = isWhite ? '#94a3b8' : '#334155';
     ctx.beginPath();
     for (let c = 0; c < totalCourses; c++) {
       const cy = startY + c * coursePitch + coursePitch / 2;
-      for (let n = 0; n < needleCols; n++) {
-        const nx = startX + n * needlePitch;
+      for (let n = 0; n < totalNeedles; n++) {
+        const nx = padX + n * needlePitch;
         ctx.moveTo(nx + 2.5, cy);
         ctx.arc(nx, cy, 2.5, 0, Math.PI * 2);
       }
@@ -497,164 +768,210 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     ctx.fill();
 
     if (activeBars.length === 0) {
-      ctx.fillStyle = isWhite ? '#64748b' : '#94a3b8';
+      ctx.fillStyle = '#94a3b8';
       ctx.font = '14px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('Lütfen en az bir tarak (GB) aktif edin.', canvas.width / 2, canvas.height / 2);
       return;
     }
 
-    // D. Draw Accurate Warp Knitting Shogging Paths for Each Threaded Guide
-    const barsToDraw = isolateActiveBar
-      ? [editingGbId]
-      : activeBars.filter((id) => visibleBars[id] !== false);
+    // Sort bars according to custom zIndex layer order (1: back, 6: front)
+    const sortedBarsForTech = [...barsToDisplay].sort((a, b) => {
+      if (a === editingGbId) return 1;
+      if (b === editingGbId) return -1;
+      const zA = gbMap[a]?.zIndex ?? (parseInt(a.replace('GB', ''), 10) || 1);
+      const zB = gbMap[b]?.zIndex ?? (parseInt(b.replace('GB', ''), 10) || 1);
+      return zA - zB;
+    });
 
-    barsToDraw.forEach((gbId, gbIdx) => {
+    sortedBarsForTech.forEach((gbId, gbIdx) => {
       const gb = gbMap[gbId];
       if (!gb) return;
       const isEdited = gbId === editingGbId;
       const gbColor = gb.color;
-      const offsetGbX = isolateActiveBar ? 0 : (gbIdx - (barsToDraw.length - 1) / 2) * 5;
+      const barOpacity = Math.max(0.1, Math.min(1.0, gb.opacity ?? 1.0));
+      const lineStyle = gb.lineStyle || 'solid';
+      const offsetGbX = isolateActiveBar ? 0 : (gbIdx - (sortedBarsForTech.length - 1) / 2) * 5;
 
       ctx.strokeStyle = gbColor;
       ctx.fillStyle = gbColor;
       ctx.lineWidth = isEdited ? 3.0 : 1.8;
 
-      // Find all threaded needles for this guide bar directly from gb.threadingArray
       const threadedGuides: number[] = [];
-      for (let n = 0; n < needleCols; n++) {
-        const isThreaded = gb.threadingArray && typeof gb.threadingArray[n] === 'boolean'
-          ? gb.threadingArray[n]
-          : n % 2 === 0;
+      for (let n = 0; n < totalNeedles; n++) {
+        const baseN = n % needleCols;
+        const isThreaded =
+          gb.threadingArray && typeof gb.threadingArray[baseN] === 'boolean'
+            ? gb.threadingArray[baseN]
+            : baseN % 2 === 0;
         if (isThreaded) threadedGuides.push(n);
       }
 
-      // Draw continuous thread for each threaded guide across all repeated courses
       threadedGuides.forEach((g) => {
-        ctx.beginPath();
-        let hasStarted = false;
-
         for (let rep = 0; rep < repeatY; rep++) {
           rows.forEach((row, rIdx) => {
             const c = rep * rows.length + rIdx;
             const shift = row[gbId] || 0;
             const targetNeedle = g + shift;
 
-            if (targetNeedle >= 0 && targetNeedle < needleCols) {
-              const px = startX + targetNeedle * needlePitch + offsetGbX;
+            if (targetNeedle >= 0 && targetNeedle < totalNeedles) {
+              const px = padX + targetNeedle * needlePitch + offsetGbX;
               const py = startY + c * coursePitch + coursePitch / 2;
 
-              if (!hasStarted) {
-                ctx.moveTo(px, py);
-                hasStarted = true;
-              } else {
+              if (c > 0) {
                 const prevRow = rIdx === 0 ? rows[rows.length - 1] : rows[rIdx - 1];
                 const prevShift = prevRow[gbId] || 0;
                 const prevNeedle = g + prevShift;
-                const prevX = startX + prevNeedle * needlePitch + offsetGbX;
-                const prevY = startY + (c - 1) * coursePitch + coursePitch / 2;
+                if (prevNeedle >= 0 && prevNeedle < totalNeedles) {
+                  const prevX = padX + prevNeedle * needlePitch + offsetGbX;
+                  const prevY = startY + (c - 1) * coursePitch + coursePitch / 2;
 
-                if (showLoopCurves) {
-                  const cpY = (prevY + py) / 2;
-                  ctx.bezierCurveTo(prevX, cpY, px, cpY, px, py);
-                } else {
+                  const isSkipped = row.skips?.[gbId] ?? false;
+
+                  ctx.save();
+                  ctx.strokeStyle = gbColor;
+                  ctx.lineWidth = isEdited ? (isSkipped ? 1.6 : 3.0) : (isSkipped ? 1.0 : 1.8);
+                  ctx.globalAlpha = isSkipped ? 0.20 : barOpacity;
+                  
+                  if (isSkipped) {
+                    ctx.setLineDash([5, 4]);
+                  } else if (lineStyle === 'dashed') {
+                    ctx.setLineDash([10, 7]);
+                  } else if (lineStyle === 'long-dash') {
+                    ctx.setLineDash([18, 9]);
+                  } else if (lineStyle === 'dotted') {
+                    ctx.setLineDash([3, 7]);
+                  } else if (lineStyle === 'dash-dot') {
+                    ctx.setLineDash([14, 6, 3, 6]);
+                  } else if (lineStyle === 'dash-dot-dot') {
+                    ctx.setLineDash([14, 5, 3, 5, 3, 5]);
+                  } else {
+                    ctx.setLineDash([]);
+                  }
+
+                  ctx.beginPath();
+                  ctx.moveTo(prevX, prevY);
                   ctx.lineTo(px, py);
+                  ctx.stroke();
+                  ctx.restore();
                 }
               }
-            } else {
-              hasStarted = false;
             }
           });
         }
-        ctx.stroke();
 
-        // Draw Loop Heads / Trick Points on active threaded needle nodes
         for (let rep = 0; rep < repeatY; rep++) {
           rows.forEach((row, rIdx) => {
             const c = rep * rows.length + rIdx;
             const shift = row[gbId] || 0;
             const targetNeedle = g + shift;
 
-            if (targetNeedle >= 0 && targetNeedle < needleCols) {
-              const px = startX + targetNeedle * needlePitch + offsetGbX;
+            if (targetNeedle >= 0 && targetNeedle < totalNeedles) {
+              const px = padX + targetNeedle * needlePitch + offsetGbX;
               const py = startY + c * coursePitch + coursePitch / 2;
 
+              ctx.save();
+              ctx.globalAlpha = barOpacity;
               ctx.beginPath();
               ctx.arc(px, py, isEdited ? 4.5 : 3.2, 0, Math.PI * 2);
               ctx.fill();
-              ctx.strokeStyle = isEdited ? '#ffffff' : isWhite ? '#ffffff' : '#0f172a';
+              ctx.strokeStyle = isEdited ? '#ffffff' : '#0f172a';
               ctx.lineWidth = isEdited ? 1.5 : 1;
               ctx.stroke();
+              ctx.restore();
             }
           });
         }
       });
 
-      // E. Step Numbers & Shogging Deltas (Adım Sayıları)
-      for (let rep = 0; rep < repeatY; rep++) {
-        rows.forEach((row, rIdx) => {
-          const c = rep * rows.length + rIdx;
-          const shift = row[gbId] || 0;
+      if (showStepNumbers) {
+        for (let rep = 0; rep < repeatY; rep++) {
+          rows.forEach((row, rIdx) => {
+            const c = rep * rows.length + rIdx;
+            const shift = row[gbId] || 0;
 
-          let prevShift = shift;
-          if (c > 0) {
-            const prevRow = rIdx === 0 ? rows[rows.length - 1] : rows[rIdx - 1];
-            prevShift = prevRow[gbId] || 0;
-          }
-          const stepDiff = shift - prevShift;
-          const stepText = stepDiff === 0 ? '0' : stepDiff > 0 ? `+${stepDiff}` : `${stepDiff}`;
-
-          // On-graph Delta label
-          if (showStepNumbers && threadedGuides.length > 0 && c > 0 && Math.abs(stepDiff) > 0) {
-            const firstGuide = threadedGuides[0];
-            const targetNeedle = firstGuide + shift;
-            if (targetNeedle >= 0 && targetNeedle < needleCols) {
-              const px = startX + targetNeedle * needlePitch + offsetGbX;
-              const py = startY + c * coursePitch + coursePitch / 2;
-
-              ctx.fillStyle = isWhite ? '#0f172a' : '#f8fafc';
-              ctx.font = 'bold 9px sans-serif';
-              ctx.textAlign = 'left';
-              ctx.fillText(`Δ:${stepText}`, px + 6, py - 3);
+            let prevShift = shift;
+            if (c > 0) {
+              const prevRow = rIdx === 0 ? rows[rows.length - 1] : rows[rIdx - 1];
+              prevShift = prevRow[gbId] || 0;
             }
-          }
+            const stepDiff = shift - prevShift;
+            const stepText = stepDiff === 0 ? '0' : stepDiff > 0 ? `+${stepDiff}` : `${stepDiff}`;
 
-          // Right-Hand Step Columns Log
-          if (showStepNumbers) {
-            const py = startY + c * coursePitch + coursePitch / 2;
-            const sideX = startX + (needleCols - 1) * needlePitch + 35 + gbIdx * 52;
+            if (threadedGuides.length > 0 && c > 0 && Math.abs(stepDiff) > 0) {
+              const firstGuide = threadedGuides[0];
+              const targetNeedle = firstGuide + shift;
+              if (targetNeedle >= 0 && targetNeedle < totalNeedles) {
+                const px = padX + targetNeedle * needlePitch + offsetGbX;
+                const py = startY + c * coursePitch + coursePitch / 2;
 
-            ctx.fillStyle = isWhite ? '#f8fafc' : '#0f172a';
-            ctx.fillRect(sideX - 4, py - 9, 46, 18);
-            ctx.strokeStyle = gb.color;
-            ctx.lineWidth = isEdited ? 2 : 1;
-            ctx.strokeRect(sideX - 4, py - 9, 46, 18);
-
-            ctx.fillStyle = isWhite ? '#0f172a' : gb.color;
-            ctx.font = 'bold 10px monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${gbId}:${stepText}`, sideX + 19, py + 3.5);
-          }
-        });
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = 'bold 9px "JetBrains Mono", monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(`Δ:${stepText}`, px + 6, py - 3);
+              }
+            }
+          });
+        }
       }
     });
 
-    // Step Column Table Headers
-    if (showStepNumbers) {
-      barsToDraw.forEach((gbId, gbIdx) => {
-        const gb = gbMap[gbId];
-        if (!gb) return;
-        const sideX = startX + (needleCols - 1) * needlePitch + 35 + gbIdx * 52;
-        ctx.fillStyle = isWhite ? '#0f172a' : gb.color;
-        ctx.font = 'bold 10px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(gbId, sideX + 19, startY - 35);
-        ctx.fillText('Adım Δ', sideX + 19, startY - 20);
-      });
+    // Draw guide bar lateral gaps (Taraklar Arası Yanal Fark / ΔTarak) per course row
+    if (showBarGaps && barsToDisplay.length >= 2) {
+      for (let rep = 0; rep < repeatY; rep++) {
+        rows.forEach((row, rIdx) => {
+          const c = rep * rows.length + rIdx;
+          const cy = startY + c * coursePitch + coursePitch / 2;
+
+          const gb1 = barsToDisplay[0];
+          const gb2 = barsToDisplay[1];
+          const shift1 = row[gb1] || 0;
+          const shift2 = row[gb2] || 0;
+          const gap = Math.abs(shift1 - shift2);
+
+          ctx.fillStyle = isWhite ? '#0284c7' : '#38bdf8';
+          ctx.font = 'bold 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(`Δ${gb1}-${gb2}:${gap}i`, padX + (totalNeedles - 1) * needlePitch + 32, cy - 2);
+        });
+      }
+    }
+
+    // Draw empty loop count per course row if showEmptyLoopInfo is enabled
+    if (showEmptyLoopInfo) {
+      for (let rep = 0; rep < repeatY; rep++) {
+        rows.forEach((row, rIdx) => {
+          const c = rep * rows.length + rIdx;
+          const cy = startY + c * coursePitch + coursePitch / 2;
+
+          let emptyCount = 0;
+          for (let n = 0; n < totalNeedles; n++) {
+            let hasThread = false;
+            barsToDisplay.forEach((gbId) => {
+              const gb = gbMap[gbId];
+              if (!gb) return;
+              const shift = row[gbId] || 0;
+              const baseG = (n - shift + totalNeedles * 10) % needleCols;
+              const isTh =
+                gb.threadingArray && typeof gb.threadingArray[baseG] === 'boolean'
+                  ? gb.threadingArray[baseG]
+                  : baseG % 2 === 0;
+              if (isTh) hasThread = true;
+            });
+            if (!hasThread) emptyCount++;
+          }
+
+          if (emptyCount > 0) {
+            ctx.fillStyle = isWhite ? '#e11d48' : '#fb7185';
+            ctx.font = 'bold 9px "JetBrains Mono", monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(`Boş:${emptyCount}`, padX - 32, cy - 2);
+          }
+        });
+      }
     }
   };
 
-  // 2. Draw Realistic Fabric Simulation with Instant Real-Time Threading Feedback (High Performance)
   const drawFabricSimulation = (overrideGuideBars?: Record<GuideBarId, GuideBarConfig>) => {
     if (displayMode !== 'dual' && displayMode !== 'fabric') return;
 
@@ -667,7 +984,6 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
 
     const gbMap = overrideGuideBars || guideBarsState || pattern.guideBars;
 
-    // Textile background
     const bgGradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
     bgGradient.addColorStop(0, '#0a0f1e');
     bgGradient.addColorStop(1, '#05070d');
@@ -682,61 +998,49 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       ctx.fillStyle = '#64748b';
       ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Lütfen en az bir aktif tarak görünürlüğünü açın.', canvas.width / 2, canvas.height / 2);
+      ctx.fillText(
+        'Lütfen en az bir aktif tarak görünürlüğünü açın.',
+        canvas.width / 2,
+        canvas.height / 2
+      );
       return;
     }
 
-    const startX = 65;
-    const startY = 85;
+    // Draw needle numbers & Dolu/Boş threading indicator dots on Fabric Simulation
+    drawNeedleHeaderAndThreadingDots(ctx, gbMap, activeAndVisibleBars, false);
 
-    // Threading array of the currently edited guide bar
-    const currentGbConfig = gbMap[editingGbId] || gbMap.GB3 || gbMap.GB1;
-    const editingBarThreading = Array.from({ length: needleCols }, (_, i) => {
-      if (currentGbConfig?.threadingArray && typeof currentGbConfig.threadingArray[i] === 'boolean') {
-        return currentGbConfig.threadingArray[i];
-      }
-      return i % 2 === 0;
-    });
-
-    // Needle Wales Header
-    ctx.font = 'bold 10px monospace';
-    ctx.textAlign = 'center';
-    for (let n = 0; n < needleCols; n++) {
-      const nx = startX + n * needlePitch;
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillText(`İ${n}`, nx, startY - 42);
-    }
-
-    // Wale vertical baselines (Batched)
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let n = 0; n < needleCols; n++) {
-      const nx = startX + n * needlePitch;
-      ctx.moveTo(nx, startY + 5);
+    for (let n = 0; n < totalNeedles; n++) {
+      const nx = padX + n * needlePitch;
+      ctx.moveTo(nx, startY + 2);
       ctx.lineTo(nx, startY + totalCourses * coursePitch + 10);
     }
     ctx.stroke();
 
-    // Precompute yarn presence grid for all (course, needle) in a single fast O(N) pass
-    const yarnPresent = new Uint8Array(totalCourses * needleCols);
-    const editingYarnPresent = new Uint8Array(totalCourses * needleCols);
+    const yarnPresent = new Uint8Array(totalCourses * totalNeedles);
+    const editingYarnPresent = new Uint8Array(totalCourses * totalNeedles);
 
     activeAndVisibleBars.forEach((gbId) => {
       const gb = gbMap[gbId];
       if (!gb) return;
       const tArr = gb.threadingArray;
       const isEditingBar = gbId === editingGbId;
+
       for (let rep = 0; rep < repeatY; rep++) {
-        for (let rIdx = 0; rIdx < rows.length; rIdx++) {
+        rows.forEach((row, rIdx) => {
           const c = rep * rows.length + rIdx;
-          const shift = rows[rIdx][gbId] || 0;
-          for (let g = 0; g < needleCols; g++) {
-            const isThreaded = tArr && typeof tArr[g] === 'boolean' ? tArr[g] : (g % 2 === 0);
+          const shift = row[gbId] || 0;
+
+          for (let g = 0; g < totalNeedles; g++) {
+            const baseG = g % needleCols;
+            const isThreaded =
+              tArr && typeof tArr[baseG] === 'boolean' ? tArr[baseG] : baseG % 2 === 0;
             if (isThreaded) {
               const actualNeedle = g + shift;
-              if (actualNeedle >= 0 && actualNeedle < needleCols) {
-                const idx = c * needleCols + actualNeedle;
+              if (actualNeedle >= 0 && actualNeedle < totalNeedles) {
+                const idx = c * totalNeedles + actualNeedle;
                 yarnPresent[idx] = 1;
                 if (isEditingBar) {
                   editingYarnPresent[idx] = 1;
@@ -744,50 +1048,56 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               }
             }
           }
-        }
+        });
       }
     });
 
-    // Pore Mesh Analysis: Subtle background highlights for open mesh pores (Non-obscuring)
+    // Mesh pores rendering (No text badge banner overlay!)
     if (showPoreMesh) {
       ctx.save();
-      // Highlight open mesh pores (where no yarn exists)
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 2]);
 
       ctx.beginPath();
       for (let c = 0; c < totalCourses; c++) {
         const poreCy = startY + c * coursePitch + coursePitch / 2;
-        for (let n = 0; n < needleCols; n++) {
-          const idx = c * needleCols + n;
+        for (let n = 0; n < totalNeedles; n++) {
+          const idx = c * totalNeedles + n;
           const hasYarn = isolateActiveBar ? editingYarnPresent[idx] : yarnPresent[idx];
           if (!hasYarn) {
-            const poreCx = startX + n * needlePitch;
-            ctx.moveTo(poreCx + needlePitch * 0.35, poreCy);
-            ctx.ellipse(poreCx, poreCy, needlePitch * 0.35, coursePitch * 0.3, 0, 0, Math.PI * 2);
+            const poreCx = padX + n * needlePitch;
+            ctx.moveTo(poreCx + needlePitch * 0.38, poreCy);
+            ctx.ellipse(
+              poreCx,
+              poreCy,
+              needlePitch * 0.38,
+              coursePitch * 0.32,
+              0,
+              0,
+              Math.PI * 2
+            );
           }
         }
       }
       ctx.fill();
       ctx.stroke();
 
-      // Subtle crosshairs for empty pore centers
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
       ctx.setLineDash([]);
       ctx.beginPath();
       for (let c = 0; c < totalCourses; c++) {
         const poreCy = startY + c * coursePitch + coursePitch / 2;
-        for (let n = 0; n < needleCols; n++) {
-          const idx = c * needleCols + n;
+        for (let n = 0; n < totalNeedles; n++) {
+          const idx = c * totalNeedles + n;
           const hasYarn = isolateActiveBar ? editingYarnPresent[idx] : yarnPresent[idx];
           if (!hasYarn) {
-            const poreCx = startX + n * needlePitch;
-            ctx.moveTo(poreCx - 3, poreCy);
-            ctx.lineTo(poreCx + 3, poreCy);
-            ctx.moveTo(poreCx, poreCy - 3);
-            ctx.lineTo(poreCx, poreCy + 3);
+            const poreCx = padX + n * needlePitch;
+            ctx.moveTo(poreCx - 3.5, poreCy);
+            ctx.lineTo(poreCx + 3.5, poreCy);
+            ctx.moveTo(poreCx, poreCy - 3.5);
+            ctx.lineTo(poreCx, poreCy + 3.5);
           }
         }
       }
@@ -795,458 +1105,845 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       ctx.restore();
     }
 
-    // PROPER WARP KNITTING LAYER ORDER
+    // Draw background needle dots across grid if showNeedleDots is enabled
+    if (showNeedleDots) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.25)';
+      ctx.beginPath();
+      for (let c = 0; c < totalCourses; c++) {
+        const cy = startY + c * coursePitch + coursePitch / 2;
+        for (let n = 0; n < totalNeedles; n++) {
+          const nx = padX + n * needlePitch;
+          ctx.moveTo(nx + 2, cy);
+          ctx.arc(nx, cy, 2.0, 0, Math.PI * 2);
+        }
+      }
+      ctx.fill();
+      ctx.restore();
+    }
+
     const sortedBars = [...activeAndVisibleBars].sort((a, b) => {
       if (a === editingGbId) return 1;
       if (b === editingGbId) return -1;
-      const getLayerRank = (id: GuideBarId) => {
-        if (id === 'GB6' || id === 'GB5') return 1; // Back/Ground
-        if (id === 'GB4' || id === 'GB2') return 2; // Middle
-        return 3; // Face
-      };
-      return getLayerRank(a) - getLayerRank(b);
+      const zA = gbMap[a]?.zIndex ?? (parseInt(a.replace('GB', ''), 10) || 1);
+      const zB = gbMap[b]?.zIndex ?? (parseInt(b.replace('GB', ''), 10) || 1);
+      return zA - zB;
     });
 
     sortedBars.forEach((gbId) => {
       const gb = gbMap[gbId];
       if (!gb) return;
       const isEdited = gbId === editingGbId;
+      const barOpacity = Math.max(0.1, Math.min(1.0, gb.opacity ?? 1.0));
+      const lineStyle = gb.lineStyle || 'solid';
       const yarnRadius = Math.max(2.5, Math.min(6.0, gb.dtex / 40 + (isEdited ? 1.8 : 1.0)));
-      const threadingArr = gb.threadingArray || Array.from({ length: needleCols }, (_, i) => i % 2 === 0);
+      const threadingArr =
+        gb.threadingArray || Array.from({ length: needleCols }, (_, i) => i % 2 === 0);
 
-      // Collect loop nodes for batching
-      const loopCoords: { x: number; y: number }[] = [];
+      for (let g = 0; g < totalNeedles; g++) {
+        const baseG = g % needleCols;
+        if (!threadingArr[baseG]) continue;
 
-      ctx.save();
-      ctx.strokeStyle = gb.color;
-      ctx.lineWidth = yarnRadius * 2;
-      ctx.lineCap = 'round';
-      ctx.globalAlpha = isEdited ? 1.0 : (gbId === 'GB5' || gbId === 'GB6') ? 0.65 : 0.85;
-
-      // Only apply blur to active bar to preserve smooth 60 FPS
-      if (isEdited) {
-        ctx.shadowColor = 'rgba(0,0,0,0.6)';
-        ctx.shadowBlur = 6;
-        ctx.shadowOffsetY = 2;
-      }
-
-      ctx.beginPath();
-      for (let g = 0; g < needleCols; g++) {
-        if (!threadingArr[g]) continue;
-
+        // 1. Draw straight yarn lines connecting course steps
         for (let rep = 0; rep < repeatY; rep++) {
           rows.forEach((row, rIdx) => {
             const c = rep * rows.length + rIdx;
             const shift = row[gbId] || 0;
             const actualNeedle = g + shift;
 
-            if (actualNeedle >= 0 && actualNeedle < needleCols) {
-              const x = startX + actualNeedle * needlePitch;
+            if (actualNeedle >= 0 && actualNeedle < totalNeedles) {
+              const x = padX + actualNeedle * needlePitch;
               const y = startY + c * coursePitch + coursePitch / 2;
-
-              loopCoords.push({ x, y });
 
               if (c > 0) {
                 const prevRow = rIdx === 0 ? rows[rows.length - 1] : rows[rIdx - 1];
                 const prevShift = prevRow[gbId] || 0;
                 const prevNeedle = g + prevShift;
 
-                if (prevNeedle >= 0 && prevNeedle < needleCols) {
-                  const prevX = startX + prevNeedle * needlePitch;
+                if (prevNeedle >= 0 && prevNeedle < totalNeedles) {
+                  const prevX = padX + prevNeedle * needlePitch;
                   const prevY = startY + (c - 1) * coursePitch + coursePitch / 2;
 
+                  const isSkipped = row.skips?.[gbId] ?? false;
+
+                  ctx.save();
+                  ctx.strokeStyle = gb.color;
+                  ctx.lineWidth = isSkipped ? yarnRadius * 1.3 : yarnRadius * 2.2;
+                  ctx.globalAlpha = isSkipped ? 0.35 : barOpacity;
+                  ctx.lineCap = 'round';
+
+                  if (isSkipped) {
+                    ctx.setLineDash([5, 4]);
+                  } else if (lineStyle === 'dashed') {
+                    ctx.setLineDash([10, 7]);
+                  } else if (lineStyle === 'long-dash') {
+                    ctx.setLineDash([18, 9]);
+                  } else if (lineStyle === 'dotted') {
+                    ctx.setLineDash([3, 7]);
+                  } else if (lineStyle === 'dash-dot') {
+                    ctx.setLineDash([14, 6, 3, 6]);
+                  } else if (lineStyle === 'dash-dot-dot') {
+                    ctx.setLineDash([14, 5, 3, 5, 3, 5]);
+                  } else {
+                    ctx.setLineDash([]);
+                  }
+
+                  ctx.beginPath();
                   ctx.moveTo(prevX, prevY);
-                  ctx.quadraticCurveTo((prevX + x) / 2, (prevY + y) / 2, x, y);
+                  ctx.lineTo(x, y);
+                  ctx.stroke();
+                  ctx.restore();
                 }
               }
             }
           });
         }
-      }
-      ctx.stroke();
 
-      // Specular yarn highlight
-      ctx.strokeStyle = isEdited ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.30)';
-      ctx.lineWidth = yarnRadius * 0.7;
-      ctx.stroke();
-      ctx.restore();
+        // 2. Draw circular needle node dots on every course row step for active threads (when showNeedleDots is enabled)
+        if (showNeedleDots) {
+          for (let rep = 0; rep < repeatY; rep++) {
+            rows.forEach((row, rIdx) => {
+              const c = rep * rows.length + rIdx;
+              const shift = row[gbId] || 0;
+              const actualNeedle = g + shift;
 
-      // Batch draw Overlap Loop Crowns for this guide bar
-      if (loopCoords.length > 0) {
-        const crownR = yarnRadius * (isEdited ? 1.9 : 1.6);
+              if (actualNeedle >= 0 && actualNeedle < totalNeedles) {
+                const x = padX + actualNeedle * needlePitch;
+                const y = startY + c * coursePitch + coursePitch / 2;
+                const isSkipped = row.skips?.[gbId] ?? false;
+                const nodeRadius = Math.max(3.2, yarnRadius * 0.85);
 
-        ctx.save();
-        ctx.fillStyle = gb.color;
-        ctx.globalAlpha = isEdited ? 1.0 : (gbId === 'GB5' || gbId === 'GB6') ? 0.70 : 0.88;
-        if (isEdited) {
-          ctx.shadowColor = gb.color;
-          ctx.shadowBlur = 8;
+                ctx.save();
+                ctx.globalAlpha = isSkipped ? 0.35 : barOpacity;
+
+                // Outer node fill
+                ctx.beginPath();
+                ctx.arc(x, y, nodeRadius, 0, Math.PI * 2);
+                ctx.fillStyle = gb.color;
+                ctx.fill();
+
+                // Subtle soft outer border ring
+                ctx.strokeStyle = isEdited ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.40)';
+                ctx.lineWidth = isEdited ? 1.4 : 1.0;
+                ctx.stroke();
+
+                ctx.restore();
+              }
+            });
+          }
         }
-
-        ctx.beginPath();
-        loopCoords.forEach(({ x, y }) => {
-          ctx.moveTo(x + crownR, y);
-          ctx.arc(x, y, crownR, 0, Math.PI * 2);
-        });
-        ctx.fill();
-
-        if (isEdited) {
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1.2;
-          ctx.stroke();
-        }
-
-        // Specular sheen core
-        ctx.fillStyle = isEdited ? 'rgba(255, 255, 255, 0.65)' : 'rgba(255, 255, 255, 0.40)';
-        ctx.beginPath();
-        loopCoords.forEach(({ x, y }) => {
-          const sx = x - yarnRadius * 0.35;
-          const sy = y - yarnRadius * 0.35;
-          const sr = yarnRadius * 0.75;
-          ctx.moveTo(sx + sr, sy);
-          ctx.arc(sx, sy, sr, 0, Math.PI * 2);
-        });
-        ctx.fill();
-        ctx.restore();
       }
     });
 
-    // Course indicators
-    ctx.font = '10px monospace';
+    // Balanced Course Indicators on Left and Right
+    ctx.font = 'bold 10px "JetBrains Mono", monospace';
     ctx.fillStyle = '#64748b';
-    ctx.textAlign = 'left';
     for (let c = 0; c < totalCourses; c += 2) {
       const cy = startY + c * coursePitch + coursePitch / 2;
-      ctx.fillText(`K${c + 1}`, 15, cy + 3);
+      ctx.textAlign = 'right';
+      ctx.fillText(`K${c + 1}`, padX - 10, cy + 3);
+      ctx.textAlign = 'left';
+      ctx.fillText(`K${c + 1}`, padX + (totalNeedles - 1) * needlePitch + 10, cy + 3);
     }
   };
 
-  // Debounced / RAF-batched redraw with explicit dependencies (No infinite unconstrained loops)
   useEffect(() => {
-    let animId: number;
-    animId = requestAnimationFrame(() => {
+    const render = () => {
       if (displayMode === 'technical' || displayMode === 'dual') {
         drawTechnicalDiagram();
       }
       if (displayMode === 'fabric' || displayMode === 'dual') {
         drawFabricSimulation();
       }
-    });
-    return () => cancelAnimationFrame(animId);
+    };
+
+    const animId = requestAnimationFrame(render);
+    // Double trigger to ensure canvas renders even if DOM is resolving on tab switch
+    const t1 = setTimeout(render, 40);
+    const t2 = setTimeout(render, 150);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [
     displayMode,
+    containerWidth,
     guideBarsState,
     pattern.guideBars,
     pattern.rows,
     needleCols,
+    totalNeedles,
     paperTheme,
+    repeatX,
     repeatY,
     showStepNumbers,
-    showLoopCurves,
     showPoreMesh,
+    showNeedleDots,
     isolateActiveBar,
     editingGbId,
     visibleBars,
     coursePitch,
   ]);
 
-  const downloadSimulationImage = (canvas: HTMLCanvasElement | null, fileName: string) => {
-    if (!canvas) return;
+  // Full-Detail High-DPI Composite PNG Export (Crisp 2x Scale, Full Threading, All Chain Code Steps & Watermark)
+  const buildCompositeReportCanvas = (sourceCanvas: HTMLCanvasElement | null): HTMLCanvasElement | null => {
+    if (!sourceCanvas) return null;
+
+    const gbMap = guideBarsState || pattern.guideBars;
+    const activeGbList = activeBars;
+
+    let chainCodeLinesCount = 0;
+    activeGbList.forEach((gbId) => {
+      const stepsStr = rows.map((r, rIdx) => `K${rIdx + 1}:${r[gbId] ?? 0}`).join(' ');
+      const estLines = Math.max(1, Math.ceil(stepsStr.length / 90));
+      chainCodeLinesCount += 1 + estLines;
+    });
+
+    const footerHeight = Math.max(180, 70 + chainCodeLinesCount * 22);
+    const unscaledWidth = Math.max(920, sourceCanvas.width);
+    const unscaledHeight = sourceCanvas.height + footerHeight;
+
+    const dpr = 2;
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = unscaledWidth * dpr;
+    exportCanvas.height = unscaledHeight * dpr;
+
+    const ctx = exportCanvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.scale(dpr, dpr);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.fillStyle = '#060a12';
+    ctx.fillRect(0, 0, unscaledWidth, unscaledHeight);
+
+    const offsetX = Math.floor((unscaledWidth - sourceCanvas.width) / 2);
+    ctx.drawImage(sourceCanvas, offsetX, 0);
+
+    const fy = sourceCanvas.height;
+    ctx.fillStyle = '#0B0F17';
+    ctx.fillRect(0, fy, unscaledWidth, footerHeight);
+
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, fy);
+    ctx.lineTo(unscaledWidth, fy);
+    ctx.stroke();
+
+    ctx.fillStyle = '#0F172A';
+    ctx.fillRect(12, fy + 10, unscaledWidth - 24, 28);
+    ctx.strokeStyle = '#1E293B';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(12, fy + 10, unscaledWidth - 24, 28);
+
+    ctx.fillStyle = '#38BDF8';
+    ctx.font = 'bold 12px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(
+      `WARP KNITTING FABRIC REPORT: ${pattern.title.toUpperCase()}  |  MAKİNE: ${pattern.machine.gauge}  |  İĞNE: ${needleCols}  |  KURS: ${rows.length}`,
+      24,
+      fy + 28
+    );
+
+    let currentY = fy + 56;
+
+    activeGbList.forEach((gbId) => {
+      const gb = gbMap[gbId];
+      if (!gb) return;
+
+      ctx.fillStyle = gb.color;
+      ctx.fillRect(16, currentY - 10, 12, 12);
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(16, currentY - 10, 12, 12);
+
+      const fullThreadingStr = Array.from({ length: needleCols }, (_, i) =>
+        gb.threadingArray && typeof gb.threadingArray[i] === 'boolean'
+          ? gb.threadingArray[i]
+            ? '1'
+            : '0'
+          : i % 2 === 0
+          ? '1'
+          : '0'
+      ).join('');
+
+      const filledCnt = Array.from({ length: needleCols }, (_, i) =>
+        gb.threadingArray && typeof gb.threadingArray[i] === 'boolean'
+          ? gb.threadingArray[i]
+          : i % 2 === 0
+      ).filter(Boolean).length;
+
+      const calc = guideBarCalculations[gbId];
+      const yarnText = calc ? `  |  Gerekli: ${calc.requiredYarnCount} İplik (${calc.repeatCount} Tekrar)` : '';
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 11px "JetBrains Mono", monospace';
+      const labelText = `${gbId} İĞNE DİZİLİMİ (${filledCnt}D/${needleCols - filledCnt}B${yarnText}): `;
+      ctx.fillText(labelText, 36, currentY);
+
+      ctx.fillStyle = '#34D399';
+      ctx.fillText(
+        fullThreadingStr,
+        36 + ctx.measureText(labelText).width,
+        currentY
+      );
+
+      currentY += 20;
+
+      const stepsList = rows.map((r, rIdx) => `K${rIdx + 1}:${r[gbId] ?? 0}`);
+      const itemsPerLine = Math.max(10, Math.floor((unscaledWidth - 80) / 58));
+
+      for (let i = 0; i < stepsList.length; i += itemsPerLine) {
+        const lineChunk = stepsList.slice(i, i + itemsPerLine).join('  ');
+        ctx.fillStyle = gb.color;
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.fillText(`ZİNCİR:`, 36, currentY);
+        ctx.fillStyle = '#CBD5E1';
+        ctx.fillText(lineChunk, 92, currentY);
+        currentY += 18;
+      }
+
+      currentY += 8;
+    });
+
+    // Watermark Metadata at Bottom Right Corner (Sağ Aşağıda)
+    const now = new Date();
+    const dateStr = `${now.getDate().toString().padStart(2, '0')}.${(now.getMonth() + 1).toString().padStart(2, '0')}.${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    const watermarkText = `TARİH: ${dateStr}  |  IP: 192.168.1.100 (DESK-CAD)  |  tmktekstil.com`;
+
+    ctx.font = 'bold 10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'right';
+    const textWidth = ctx.measureText(watermarkText).width;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.90)';
+    ctx.fillRect(unscaledWidth - textWidth - 24, unscaledHeight - 26, textWidth + 16, 20);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(unscaledWidth - textWidth - 24, unscaledHeight - 26, textWidth + 16, 20);
+
+    ctx.fillStyle = '#38BDF8';
+    ctx.fillText(watermarkText, unscaledWidth - 16, unscaledHeight - 12);
+
+    return exportCanvas;
+  };
+
+  const downloadSimulationImage = (sourceCanvas: HTMLCanvasElement | null, fileName: string) => {
+    const exportCanvas = buildCompositeReportCanvas(sourceCanvas);
+    if (!exportCanvas) return;
     const link = document.createElement('a');
     link.download = fileName;
-    link.href = canvas.toDataURL('image/png');
+    link.href = exportCanvas.toDataURL('image/png', 1.0);
     link.click();
   };
 
+  const shareSimulationImage = async (sourceCanvas: HTMLCanvasElement | null, fileName: string) => {
+    const exportCanvas = buildCompositeReportCanvas(sourceCanvas);
+    if (!exportCanvas) return;
+
+    exportCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+
+      const file = new File([blob], fileName, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            title: pattern.title,
+            text: `${pattern.title} - tmktekstil.com Tekstil Desen Raporu`,
+            files: [file],
+          });
+          return;
+        } catch (err) {
+          console.log('Native share cancelled or failed', err);
+        }
+      }
+
+      // WhatsApp Direct Link Fallback: Trigger PNG download + open WhatsApp share
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = exportCanvas.toDataURL('image/png', 1.0);
+      link.click();
+
+      const waText = encodeURIComponent(
+        `*WARP KNITTING DESEN RAPORU*\nDesen: ${pattern.title}\nMakine: ${pattern.machine.gauge}\nWebsite: tmktekstil.com`
+      );
+      window.open(`https://api.whatsapp.com/send?text=${waText}`, '_blank');
+    }, 'image/png', 1.0);
+  };
+
+  const filledNeedlesCount = currentThreading.filter(Boolean).length;
+
   return (
-    <div ref={simWrapperRef} className="max-w-7xl mx-auto px-3 sm:px-6 py-4 space-y-4">
-      {/* 1. Minimalist Threading & Guide Bar Toolbar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3">
-        {/* Top bar: Guide bar selectors & Quick Actions */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center space-x-2">
-            {/* Active Guide Bar Selector */}
-            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-              <span className="text-xs text-slate-400 font-medium mr-1 shrink-0">Tarak:</span>
-              {activeBars.map((id) => (
+    <div ref={simWrapperRef} className="w-full max-w-none px-2 sm:px-3 py-2.5 space-y-2.5">
+      {/* Copy Notification Banner */}
+      {copyFeedback && (
+        <div className="bg-emerald-950/90 border border-emerald-700 text-emerald-100 px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-2">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{copyFeedback}</span>
+        </div>
+      )}
+
+      {/* SECTION 1: COMPACT GUIDE BAR & THREADING TOOLBAR */}
+      <section className="bg-[#111827] border border-slate-800 rounded-xl p-3 space-y-3">
+        {/* Single-Row Threading Controls: Şablon, İğne Sayısı (+/- Butonlu), Hızlı Dizim Çipleri & Kurallar, Kopyala */}
+        <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 text-xs overflow-visible">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Şablonlar Dropdown Menu with Icon */}
+            <div className="flex items-center gap-1.5 bg-[#111827] px-2 py-1 rounded border border-slate-700" title="Dizilim Şablonları">
+              <LayoutTemplate className="w-4 h-4 text-blue-400 shrink-0" />
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleApplyPreset(e.target.value as any);
+                  }
+                }}
+                className="bg-[#0B0F17] border border-slate-700 text-slate-200 text-xs rounded px-2 py-0.5 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
+              >
+                <option value="" disabled>Şablon ▾</option>
+                <option value="full">Tam Dolu</option>
+                <option value="5-5">5 Dolu 5 Boş</option>
+                <option value="1-1">1-1</option>
+                <option value="1-2">1-2</option>
+                <option value="1-3">1-3</option>
+                <option value="2-2">2-2</option>
+                <option value="invert">Ters Çevir</option>
+                <option value="clear">Tümü Boş</option>
+              </select>
+            </div>
+
+            {/* İğne Sayısı (Direct Text + Stepper Buttons [-] [+]) */}
+            <div
+              className="flex items-center gap-1 bg-[#111827] px-1.5 py-1 rounded border border-slate-700"
+              title="İğne Sayısı (4 - 128)"
+            >
+              <Hash className="w-4 h-4 text-blue-400 shrink-0" />
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Math.max(4, needleCols - 1);
+                  setNeedleInputText(String(next));
+                  if (onChangeSafety) {
+                    onChangeSafety({
+                      ...pattern.safety,
+                      maxAllowedNeedleNumber: next - 1,
+                    });
+                  }
+                }}
+                className="w-5 h-5 flex items-center justify-center bg-[#0B0F17] border border-slate-700 hover:border-slate-500 rounded text-slate-300 hover:text-white cursor-pointer"
+                title="İğne Eksilt (-1)"
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={needleInputText}
+                onChange={(e) => {
+                  const valStr = e.target.value;
+                  setNeedleInputText(valStr);
+                  const parsed = parseInt(valStr, 10);
+                  if (!isNaN(parsed) && parsed >= 4 && parsed <= 128 && onChangeSafety) {
+                    onChangeSafety({
+                      ...pattern.safety,
+                      maxAllowedNeedleNumber: parsed - 1,
+                    });
+                  }
+                }}
+                onBlur={() => {
+                  const parsed = parseInt(needleInputText, 10);
+                  const clamped = isNaN(parsed) ? 18 : Math.max(4, Math.min(128, parsed));
+                  setNeedleInputText(String(clamped));
+                  if (onChangeSafety && clamped !== needleCols) {
+                    onChangeSafety({
+                      ...pattern.safety,
+                      maxAllowedNeedleNumber: clamped - 1,
+                    });
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className="w-10 bg-[#0B0F17] border border-slate-700 rounded px-1 py-0.5 text-center font-mono font-bold text-blue-400 text-xs focus:outline-none focus:border-blue-500 tabular-nums"
+                title="İğne Sayısı"
+              />
+
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Math.min(128, needleCols + 1);
+                  setNeedleInputText(String(next));
+                  if (onChangeSafety) {
+                    onChangeSafety({
+                      ...pattern.safety,
+                      maxAllowedNeedleNumber: next - 1,
+                    });
+                  }
+                }}
+                className="w-5 h-5 flex items-center justify-center bg-[#0B0F17] border border-slate-700 hover:border-slate-500 rounded text-slate-300 hover:text-white cursor-pointer"
+                title="İğne Artır (+1)"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+
+            <span className="text-slate-700 hidden sm:inline">|</span>
+
+            {/* Practical Fast Fill (Hızlı Pratik Dizim) */}
+            <div className="flex items-center gap-1.5" title="Hızlı Pratik Dizim">
+              <Wand2 className="w-4 h-4 text-purple-400 shrink-0" />
+
+              {/* Start Mode Choice: Green dot (Dolu) / Red dot (Boş) */}
+              <div className="flex items-center gap-0.5 bg-[#111827] p-0.5 rounded border border-slate-700" title="Başlangıç İğnesi">
                 <button
-                  key={id}
+                  type="button"
+                  onClick={() => setManualStartMode('filled')}
+                  className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold transition-colors cursor-pointer ${
+                    manualStartMode === 'filled'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-emerald-400'
+                  }`}
+                  title="Dolu İğne ile Başla"
+                >
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManualStartMode('empty')}
+                  className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold transition-colors cursor-pointer ${
+                    manualStartMode === 'empty'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-rose-400'
+                  }`}
+                  title="Boş İğne ile Başla"
+                >
+                  <div className="w-2.5 h-2.5 rounded-full bg-rose-400" />
+                </button>
+              </div>
+
+              {/* Fast Stepper Inputs for Dolu & Boş */}
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  max={96}
+                  value={manualInCount}
+                  onChange={(e) => setManualInCount(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                  className="w-10 bg-[#111827] border border-emerald-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-emerald-400 focus:outline-none focus:border-emerald-500 tabular-nums text-xs"
+                  title="Dolu İğne Sayısı"
+                />
+                <span className="text-slate-500 font-bold">/</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={96}
+                  value={manualOutCount}
+                  onChange={(e) => setManualOutCount(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                  className="w-10 bg-[#111827] border border-rose-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-rose-400 focus:outline-none focus:border-rose-500 tabular-nums text-xs"
+                  title="Boş İğne Sayısı"
+                />
+                <button
+                  type="button"
+                  onClick={handleApplyManualInOut}
+                  className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold transition-colors cursor-pointer text-xs"
+                  title="Uygula"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Quick Preset Pattern Chips */}
+              <div className="hidden md:flex items-center gap-1 ml-1">
+                {[
+                  { inC: 1, outC: 1, label: '1/1' },
+                  { inC: 2, outC: 2, label: '2/2' },
+                  { inC: 3, outC: 3, label: '3/3' },
+                  { inC: 4, outC: 4, label: '4/4' },
+                  { inC: 6, outC: 2, label: '6/2' },
+                  { inC: 12, outC: 12, label: '12/12' },
+                ].map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    onClick={() => {
+                      setManualInCount(chip.inC);
+                      setManualOutCount(chip.outC);
+                      const inCnt = chip.inC;
+                      const outCnt = chip.outC;
+                      const cycle = inCnt + outCnt;
+                      const newArr = Array.from({ length: needleCols }, (_, i) => {
+                        const mod = i % cycle;
+                        return manualStartMode === 'filled' ? mod < inCnt : mod >= outCnt;
+                      });
+                      const updatedGb: GuideBarConfig = {
+                        ...currentGb,
+                        threadingArray: newArr,
+                        threading: `${inCnt}/${outCnt}`,
+                      };
+                      const newGuideBars = { ...currentGuideBars, [editingGbId]: updatedGb };
+                      setGuideBarsState(newGuideBars);
+                      onChangeGuideBar(editingGbId, updatedGb);
+                      scheduleRedraw(newGuideBars);
+                    }}
+                    className="px-1.5 py-0.5 bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white rounded font-mono text-[11px] font-semibold transition-colors cursor-pointer"
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom Rule Input */}
+              <div className="flex items-center gap-1 ml-1">
+                <input
+                  type="text"
+                  value={customRuleText}
+                  onChange={(e) => setCustomRuleText(e.target.value)}
+                  placeholder="4-2-1"
+                  className="w-16 bg-[#111827] border border-slate-700 rounded px-1.5 py-0.5 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                  title="Özel Kural"
+                />
+                <button
+                  type="button"
+                  onClick={handleApplyCustomRuleText}
+                  className="px-1.5 py-1 bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded font-semibold transition-colors whitespace-nowrap cursor-pointer text-xs"
+                  title="Kuralı Uygula"
+                >
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                </button>
+              </div>
+            </div>
+
+            <span className="text-slate-700 hidden sm:inline">|</span>
+
+            {/* Simplified Copy Menu (Kopyala) */}
+            <div className="flex items-center gap-1.5 bg-[#111827] px-2 py-1 rounded border border-slate-700 text-xs" title="Tarak Kopyala">
+              <Copy className="w-4 h-4 text-blue-400 shrink-0" />
+              <select
+                value=""
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  handleCopyThreadingToTarget(e.target.value as any);
+                }}
+                className="bg-[#0B0F17] border border-slate-700 text-slate-200 text-xs rounded px-2 py-0.5 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
+              >
+                <option value="" disabled>
+                  {editingGbId} → Hedef
+                </option>
+                {activeBars
+                  .filter((id) => id !== editingGbId)
+                  .map((tId) => (
+                    <option key={tId} value={tId}>
+                      → {tId}
+                    </option>
+                  ))}
+                {activeBars.length > 1 && (
+                  <option value="ALL">→ Tüm Taraklar</option>
+                )}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Row: Active Guide Bar Report Badges + Needle Grid (30 Needles Per Row) */}
+        <div className="space-y-2">
+          {/* Active Guide Bar Analysis Badges Row */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs pb-1 border-b border-slate-800/80 overflow-visible">
+            {activeBars.map((gbId) => {
+              const metrics = guideBarCalculations[gbId];
+              if (!metrics) return null;
+              const gbColor = currentGuideBars[gbId]?.color || '#3b82f6';
+              const isSelected = editingGbId === gbId;
+
+              return (
+                <GuideBarCalcBadge
+                  key={gbId}
+                  metrics={metrics}
+                  compact={false}
+                  barColor={gbColor}
+                  showRequiredYarn={true}
                   onClick={() => {
-                    setEditingGbId(id);
+                    setEditingGbId(gbId);
                     scheduleRedraw();
                   }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 border shrink-0 ${
-                    editingGbId === id
-                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
-                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
-                  }`}
-                >
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: currentGuideBars[id]?.color || '#3b82f6' }}
-                  />
-                  <span>{id}</span>
-                </button>
-              ))}
-            </div>
+                  isSelected={isSelected}
+                />
+              );
+            })}
           </div>
 
-          {/* Right Tools: Fullscreen, Isolate button & bit notation input */}
-          <div className="flex items-center space-x-2 shrink-0">
-            <button
-              onClick={toggleSimFullscreen}
-              className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-lg text-xs font-medium transition flex items-center space-x-1"
-              title="Tam Ekran Modu"
-            >
-              <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
-              <span>{isFullscreen ? 'Normal' : 'Tam Ekran'}</span>
-            </button>
-            <button
-              onClick={() => {
-                setIsolateActiveBar((prev) => !prev);
-                scheduleRedraw();
-              }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
-                isolateActiveBar
-                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
-                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              {isolateActiveBar ? `★ ${editingGbId} İzole` : `Sadece ${editingGbId}`}
-            </button>
+          {/* Compact 30-Needle Per Row Grid (Numbers only, no 'İ' prefix, green/red counts) */}
+          <div className="space-y-1 p-1.5 bg-[#0B0F17] rounded-lg border border-slate-800 select-none">
+            {Array.from({ length: Math.ceil(needleCols / 30) }).map((_, rowIndex) => {
+              const rowNeedleIndices = Array.from(
+                { length: Math.min(30, needleCols - rowIndex * 30) },
+                (_, k) => rowIndex * 30 + k
+              );
+              const rowFilled = rowNeedleIndices.filter(
+                (idx) => currentThreading[idx] ?? false
+              ).length;
+              const rowEmpty = rowNeedleIndices.length - rowFilled;
 
-            <input
-              type="text"
-              value={binaryThreadingInput}
-              onChange={(e) => handleBinaryInput(e.target.value)}
-              placeholder="101010..."
-              className="w-28 sm:w-36 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs font-mono text-blue-400 text-center focus:outline-none focus:border-blue-500"
-              title={`${needleCols} bit ikili dizim kodu`}
-            />
-
-            <button
-              onClick={onOpenSafetySettings}
-              className={`p-1 sm:px-2 sm:py-1 rounded-lg text-xs font-medium border transition ${
-                safetyWarnings.length > 0
-                  ? 'bg-amber-950/60 text-amber-300 border-amber-800'
-                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
-              }`}
-              title="Güvenli Tarak Ayarları"
-            >
-              {safetyWarnings.length > 0 ? (
-                <span className="text-amber-400 font-bold">! {safetyWarnings.length} Uyarı</span>
-              ) : (
-                <span className="hidden sm:inline">Limit: {safety.maxSafeShoggingJump} İğne</span>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Needle Button Strip (Mobile Touch Friendly) */}
-        <div className="pt-1 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1 px-0.5">
-            <span className="font-semibold text-slate-200">{editingGbId} İğne Dizimi:</span>
-            <div className="flex items-center space-x-1.5 font-mono text-xs">
-              <span className="text-emerald-400 font-bold">{currentThreading.filter(Boolean).length} Dolu</span>
-              <span>/</span>
-              <span className="text-slate-400">{needleCols - currentThreading.filter(Boolean).length} Boş</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-8 sm:grid-cols-12 md:grid-cols-16 gap-1 p-1.5 max-h-52 overflow-y-auto bg-slate-950/80 rounded-xl border border-slate-800/80">
-            {Array.from({ length: needleCols }).map((_, nIdx) => {
-              const isThreaded = currentThreading[nIdx] ?? false;
               return (
-                <button
-                  key={nIdx}
-                  onClick={() => handleToggleNeedle(nIdx)}
-                  className={`h-10 flex flex-col items-center justify-center rounded-lg border touch-manipulation active:scale-95 transition-colors ${
-                    isThreaded
-                      ? 'bg-blue-950/90 border-blue-500 text-white shadow-sm'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                  title={`İğne ${nIdx}: ${isThreaded ? 'Dolu' : 'Boş'}`}
-                >
-                  <span className="text-xs font-bold font-mono text-slate-200 leading-none">İ{nIdx}</span>
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full mt-1 ${
-                      isThreaded ? 'border border-white/80' : 'border border-slate-700'
-                    }`}
-                    style={{ backgroundColor: isThreaded ? currentGb.color : 'transparent' }}
-                  />
-                </button>
+                <div key={rowIndex} className="flex items-center gap-1.5">
+                  <div
+                    className="grid grid-cols-15 sm:grid-cols-30 gap-0.5 flex-1 min-w-0"
+                    style={{ gridTemplateColumns: 'repeat(30, minmax(0, 1fr))' }}
+                    onTouchMove={(e) => {
+                      if (!isMouseDownRef.current || e.touches.length === 0) return;
+                      const touch = e.touches[0];
+                      const elem = document.elementFromPoint(touch.clientX, touch.clientY);
+                      if (elem) {
+                        const needleBtn = elem.closest('[data-needle-idx]');
+                        if (needleBtn) {
+                          const idx = parseInt(
+                            needleBtn.getAttribute('data-needle-idx') || '-1',
+                            10
+                          );
+                          if (idx >= 0 && idx < needleCols) {
+                            handleSetNeedleBatch([idx], dragTargetValRef.current);
+                          }
+                        }
+                      }
+                    }}
+                  >
+                    {rowNeedleIndices.map((nIdx) => {
+                      const isThreaded = currentThreading[nIdx] ?? false;
+                      const gbColor = currentGb?.color || '#3b82f6';
+                      return (
+                        <button
+                          key={nIdx}
+                          data-needle-idx={nIdx}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            isMouseDownRef.current = true;
+                            const nextVal = !isThreaded;
+                            dragTargetValRef.current = nextVal;
+                            handleSetNeedleBatch([nIdx], nextVal);
+                          }}
+                          onMouseEnter={() => {
+                            if (isMouseDownRef.current) {
+                              handleSetNeedleBatch([nIdx], dragTargetValRef.current);
+                            }
+                          }}
+                          onTouchStart={() => {
+                            isMouseDownRef.current = true;
+                            const nextVal = !isThreaded;
+                            dragTargetValRef.current = nextVal;
+                            handleSetNeedleBatch([nIdx], nextVal);
+                          }}
+                          className={`h-6.5 flex items-center justify-center rounded-xs border text-[11px] font-mono font-bold transition-colors cursor-pointer select-none tabular-nums ${
+                            isThreaded
+                              ? 'border-transparent text-white font-black shadow-xs'
+                              : 'bg-[#111827] border-slate-800/90 text-slate-500 hover:border-slate-700 hover:text-slate-300'
+                          }`}
+                          style={{
+                            backgroundColor: isThreaded ? gbColor : undefined,
+                          }}
+                          title={`İğne ${nIdx}: ${isThreaded ? 'Dolu' : 'Boş'}`}
+                        >
+                          {nIdx}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div
+                    className="h-6.5 px-2 flex items-center justify-center gap-1 rounded border border-slate-800 bg-[#111827] text-xs font-mono font-bold whitespace-nowrap shrink-0 tabular-nums shadow-xs"
+                    title={`Satır ${rowIndex + 1}: ${rowFilled} Dolu / ${rowEmpty} Boş`}
+                  >
+                    <span className="text-emerald-400">{rowFilled}</span>
+                    <span className="text-slate-600 font-normal">/</span>
+                    <span className="text-rose-400">{rowEmpty}</span>
+                  </div>
+                </div>
               );
             })}
           </div>
         </div>
+      </section>
 
-        {/* Quick Presets & Needle Count Row */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 text-xs">
-          {/* Template Presets */}
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="text-slate-400 font-semibold mr-1">Şablon:</span>
-            <button
-              onClick={() => handleApplyPreset('5-5')}
-              className="px-2 py-1 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 rounded-lg font-semibold border border-emerald-800 transition"
-            >
-              5 Dolu 5 Boş
-            </button>
-            <button
-              onClick={() => handleApplyPreset('full')}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition"
-            >
-              Tam Dolu
-            </button>
-            <button
-              onClick={() => handleApplyPreset('1-1')}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition"
-            >
-              1-1
-            </button>
-            <button
-              onClick={() => handleApplyPreset('1-2')}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition hidden sm:inline-block"
-            >
-              1-2
-            </button>
-            <button
-              onClick={() => handleApplyPreset('clear')}
-              className="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 rounded-lg border border-rose-900 transition"
-            >
-              Tümü Boş
-            </button>
-            <button
-              onClick={() => handleApplyPreset('invert')}
-              className="px-2 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg border border-slate-800 transition"
-            >
-              Ters
-            </button>
-          </div>
-
-          {/* Needle Count Selector Inline */}
-          <div className="flex items-center space-x-2 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
-            <span className="text-slate-400 font-medium">İğne Sayısı:</span>
-            <span className="text-blue-400 font-mono font-bold">{needleCols}</span>
-            <input
-              type="range"
-              min="8"
-              max="128"
-              step="4"
-              value={needleCols}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                if (onChangeSafety) {
-                  onChangeSafety({
-                    ...pattern.safety,
-                    maxAllowedNeedleNumber: val,
-                  });
-                }
-              }}
-              className="w-20 sm:w-28 accent-blue-500 cursor-pointer"
-            />
-            <div className="flex items-center space-x-1">
-              {[16, 32, 64, 128].map((nCnt) => (
-                <button
-                  key={nCnt}
-                  onClick={() => {
-                    if (onChangeSafety) {
-                      onChangeSafety({
-                        ...pattern.safety,
-                        maxAllowedNeedleNumber: nCnt,
-                      });
-                    }
-                  }}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition ${
-                    needleCols === nCnt
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-                  }`}
-                >
-                  {nCnt}
-                </button>
-              ))}
+      {/* SECTION 2: SIMULATION VIEW & CONTROLS */}
+      <section className="bg-[#111827] border border-slate-800 rounded-xl p-3">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+          {/* Left: View Mode Selector with Icons */}
+          <div className="flex flex-wrap items-center gap-2" title="Görünüm Modu">
+            <Eye className="w-4 h-4 text-blue-400 shrink-0" />
+            <div className="flex items-center bg-[#0B0F17] p-1 rounded-lg border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDisplayMode('fabric')}
+                className={`px-3 py-1 text-xs font-semibold rounded transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                  displayMode === 'fabric'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <LayoutTemplate className="w-3.5 h-3.5" />
+                <span>Kumaş</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDisplayMode('technical')}
+                className={`px-3 py-1 text-xs font-semibold rounded transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                  displayMode === 'technical'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Grid3X3 className="w-3.5 h-3.5" />
+                <span>Teknik</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDisplayMode('dual')}
+                className={`px-3 py-1 text-xs font-semibold rounded transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                  displayMode === 'dual'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>İkili</span>
+              </button>
             </div>
           </div>
 
-          {/* Quick Visibility Filter */}
-          <div className="flex items-center space-x-1 overflow-x-auto">
-            {activeBars.map((id) => {
-              const isVis = visibleBars[id] !== false;
-              const gb = currentGuideBars[id];
-              return (
-                <button
-                  key={id}
-                  onClick={() =>
-                    setVisibleBars((prev) => ({
-                      ...prev,
-                      [id]: !isVis,
-                    }))
-                  }
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition border ${
-                    isVis
-                      ? 'text-white border-transparent'
-                      : 'bg-slate-950 text-slate-600 border-slate-800 line-through'
-                  }`}
-                  style={{ backgroundColor: isVis ? gb?.color : undefined }}
-                  title={`${id} ${isVis ? 'gizle' : 'göster'}`}
-                >
-                  {id}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+          {/* Center/Right: Active Guide Bar Badge (Without 'Aktif Tarak:' text) + Repeats & Zoom Controls */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Active GB Badge without 'Aktif Tarak:' text label */}
+            <div
+              className="flex items-center gap-1.5 bg-[#0B0F17] px-2.5 py-1 rounded-lg border border-slate-800 text-xs font-mono"
+              title="Aktif Tarak Dolu/Boş Oranı"
+            >
+              <strong className="font-bold text-xs px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700" style={{ color: currentGb?.color || '#3b82f6' }}>
+                {editingGbId}
+              </strong>
+              <span className="font-bold tabular-nums">
+                <span className="text-emerald-400">{filledNeedlesCount}</span>
+                <span className="text-slate-600 mx-0.5">/</span>
+                <span className="text-rose-400">{needleCols - filledNeedlesCount}</span>
+              </span>
+            </div>
 
-      {/* 2. Simulation Display Controls */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-2.5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          {/* Display Mode Tabs */}
-          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
-            <button
-              onClick={() => setDisplayMode('dual')}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${
-                displayMode === 'dual' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              İkili
-            </button>
-            <button
-              onClick={() => setDisplayMode('technical')}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${
-                displayMode === 'technical' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Tarak Şeması
-            </button>
-            <button
-              onClick={() => setDisplayMode('fabric')}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition ${
-                displayMode === 'fabric' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Kumaş
-            </button>
-          </div>
-
-          {/* Controls: Theme, Repeat, Zoom */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setPaperTheme((prev) => (prev === 'dark' ? 'white' : 'dark'))}
-              className="px-2.5 py-1 bg-slate-950 border border-slate-800 text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-800 transition flex items-center space-x-1"
-            >
-              {paperTheme === 'dark' ? <Moon className="w-3.5 h-3.5 text-blue-400" /> : <Sun className="w-3.5 h-3.5 text-amber-400" />}
-              <span>{paperTheme === 'dark' ? 'CAD Koyu' : 'Beyaz'}</span>
-            </button>
-
-            <div className="flex items-center space-x-1 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800 text-xs">
-              <span className="text-slate-400 text-[11px]">Tekrar:</span>
+            {/* Horizontal Repeat (Yatay) with Icon */}
+            <div className="flex items-center gap-1 bg-[#0B0F17] px-2 py-1 rounded-lg border border-slate-800 text-xs" title="Yatay Tekrar">
+              <ArrowRightLeft className="w-4 h-4 text-slate-400 shrink-0 mr-0.5" />
               {[1, 2, 3, 4].map((rep) => (
                 <button
                   key={rep}
-                  onClick={() => setRepeatY(rep)}
-                  className={`px-1.5 py-0.5 rounded text-[11px] font-semibold transition ${
-                    repeatY === rep ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  type="button"
+                  onClick={() => setRepeatX(rep)}
+                  className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors cursor-pointer tabular-nums ${
+                    repeatX === rep
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {rep}x
@@ -1254,109 +1951,133 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               ))}
             </div>
 
-            <div className="flex items-center space-x-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+            {/* Vertical Repeat (Dikey) with Icon */}
+            <div className="flex items-center gap-1 bg-[#0B0F17] px-2 py-1 rounded-lg border border-slate-800 text-xs" title="Dikey Tekrar">
+              <ArrowUpDown className="w-4 h-4 text-slate-400 shrink-0 mr-0.5" />
+              {[1, 2, 3, 4].map((rep) => (
+                <button
+                  key={rep}
+                  type="button"
+                  onClick={() => setRepeatY(rep)}
+                  className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors cursor-pointer tabular-nums ${
+                    repeatY === rep
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {rep}x
+                </button>
+              ))}
+            </div>
+
+            {/* Zoom & Fit Controls */}
+            <div
+              className="flex items-center gap-1 bg-[#0B0F17] p-1 rounded-lg border border-slate-800"
+              title="Zoom Yakınlaştır / Uzaklaştır"
+            >
               <button
+                type="button"
                 onClick={() => {
                   setIsAutoZoom(false);
-                  setZoom((prev) => Math.max(0.4, Math.round((prev - 0.15) * 100) / 100));
+                  setZoom((prev) => Math.max(0.25, Math.round((prev - 0.15) * 100) / 100));
                 }}
-                className="p-1 text-slate-400 hover:text-white rounded transition"
+                className="p-1 text-slate-300 hover:text-white hover:bg-slate-800 rounded transition-colors cursor-pointer"
                 title="Uzaklaştır"
               >
-                <ZoomOut className="w-3.5 h-3.5" />
+                <ZoomOut className="w-4 h-4" />
               </button>
-              <span className="text-[11px] font-mono px-1 text-slate-300 min-w-[36px] text-center">
-                {Math.round(zoom * 100)}%
+              <span className="text-xs font-mono font-bold px-1.5 text-slate-200 min-w-[42px] text-center tabular-nums">
+                %{Math.round(zoom * 100)}
               </span>
               <button
+                type="button"
                 onClick={() => {
                   setIsAutoZoom(false);
                   setZoom((prev) => Math.min(2.5, Math.round((prev + 0.15) * 100) / 100));
                 }}
-                className="p-1 text-slate-400 hover:text-white rounded transition"
+                className="p-1 text-slate-300 hover:text-white hover:bg-slate-800 rounded transition-colors cursor-pointer"
                 title="Yakınlaştır"
               >
-                <ZoomIn className="w-3.5 h-3.5" />
+                <ZoomIn className="w-4 h-4" />
               </button>
+
               <button
+                type="button"
+                onClick={() => {
+                  const container = fabricContainerRef.current || techContainerRef.current;
+                  if (container) {
+                    const availW = container.clientWidth - 12;
+                    if (availW > 0 && fabricCanvasWidth > 0) {
+                      const fitW = Math.max(0.2, Math.min(1.8, availW / fabricCanvasWidth));
+                      setIsAutoZoom(false);
+                      setZoom(Math.floor(fitW * 100) / 100);
+                    }
+                  }
+                }}
+                className="p-1 rounded bg-[#111827] text-slate-200 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors cursor-pointer"
+                title="Yatay Sığdır"
+              >
+                <MoveHorizontal className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
                 onClick={() => {
                   setIsAutoZoom(true);
                   setTimeout(() => calculateSimFitZoom(), 20);
                 }}
-                className={`px-1.5 py-1 rounded text-[10px] font-bold transition flex items-center space-x-1 ${
-                  isAutoZoom
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-                }`}
-                title="Ekrana Tam Sığdır (Otomatik)"
+                className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors cursor-pointer"
+                title="Dikey Sığdır"
               >
-                <Maximize2 className="w-3 h-3" />
-                <span>Sığdır</span>
+                <MoveVertical className="w-4 h-4" />
               </button>
             </div>
           </div>
         </div>
+      </section>
 
-        {/* Checkbox Layers */}
-        <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-slate-800/80 text-xs text-slate-300">
-          <label className="flex items-center space-x-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showStepNumbers}
-              onChange={(e) => setShowStepNumbers(e.target.checked)}
-              className="w-3.5 h-3.5 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-0"
-            />
-            <span>Δ Adım Sayısı</span>
-          </label>
-
-          <label className="flex items-center space-x-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showLoopCurves}
-              onChange={(e) => setShowLoopCurves(e.target.checked)}
-              className="w-3.5 h-3.5 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-0"
-            />
-            <span>İlmek Eğrileri</span>
-          </label>
-
-          <label className="flex items-center space-x-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showPoreMesh}
-              onChange={(e) => setShowPoreMesh(e.target.checked)}
-              className="w-3.5 h-3.5 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-0"
-            />
-            <span>Gözenek Analizi</span>
-          </label>
-
-          <span className="ml-auto text-[11px] text-slate-500 font-mono">
-            {totalCourses} Kurs · {needleCols} İğne
-          </span>
-        </div>
-      </div>
-
-      {/* 3. Canvases Viewport */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      {/* SECTION 3: SIMULATION CANVASES */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* Technical Diagram */}
         {(displayMode === 'dual' || displayMode === 'technical') && (
           <div
-            className={`bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden ${
-              displayMode === 'dual' ? 'lg:col-span-7' : 'lg:col-span-12'
+            className={`bg-[#111827] border border-slate-800 rounded-xl overflow-hidden ${
+              displayMode === 'dual' ? 'lg:col-span-6' : 'lg:col-span-12'
             }`}
           >
-            <div className="px-3.5 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-semibold text-xs text-slate-200">
-                Teknik Tarak Şeması (Point Paper)
+            <div className="px-3.5 py-2 bg-[#0F172A] border-b border-slate-800 flex items-center justify-between">
+              <span className="font-semibold text-xs text-white">
+                Teknik Şema ({totalCourses} Kurs · {totalNeedles} İğne)
               </span>
-              <button
-                onClick={() =>
-                  downloadSimulationImage(technicalCanvasRef.current, `${pattern.title}_tarak_semasi.png`)
-                }
-                className="flex items-center space-x-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs transition"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>PNG</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadSimulationImage(
+                      technicalCanvasRef.current,
+                      `${pattern.title}_tarak_semasi.png`
+                    )
+                  }
+                  className="flex items-center gap-1 px-2.5 py-1 bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <span>PNG İndir</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    shareSimulationImage(
+                      technicalCanvasRef.current,
+                      `${pattern.title}_tarak_semasi.png`
+                    )
+                  }
+                  className="flex items-center gap-1 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
+                  title="WhatsApp ile Paylaş"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-white" />
+                  <span>WhatsApp Paylaş</span>
+                </button>
+              </div>
             </div>
 
             <div
@@ -1364,46 +2085,150 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
-              className="p-3 overflow-auto max-h-[750px] bg-[#070b14] flex justify-center touch-pan-x touch-pan-y"
+              onWheel={(e) => {
+                if (e.ctrlKey || e.metaKey || e.altKey) {
+                  e.preventDefault();
+                  setIsAutoZoom(false);
+                  const delta = e.deltaY < 0 ? 0.08 : -0.08;
+                  setZoom((prev) => Math.max(0.2, Math.min(2.5, Math.round((prev + delta) * 100) / 100)));
+                }
+              }}
+              className={`px-1 py-1 overflow-auto bg-[#070b14] flex justify-center touch-pan-x touch-pan-y ${
+                isFullscreen || externalFs ? 'h-[calc(100vh-130px)] max-h-none' : 'max-h-[750px]'
+              }`}
             >
               <div
                 style={{
-                  transform: `scale(${zoom})`,
-                  transformOrigin: 'top center',
-                  transition: 'transform 0.15s ease-out',
+                  width: `${Math.round(techCanvasWidth * zoom)}px`,
+                  height: `${Math.round(canvasHeight * zoom)}px`,
+                  overflow: 'hidden',
                 }}
               >
-                <canvas
-                  ref={technicalCanvasRef}
-                  width={techCanvasWidth}
-                  height={canvasHeight}
-                  className="rounded-xl border border-slate-800"
-                />
+                <div
+                  style={{
+                    transform: `scale(${zoom})`,
+                    transformOrigin: 'top left',
+                    transition: 'transform 0.12s ease-out',
+                  }}
+                >
+                  <canvas
+                    ref={technicalCanvasRef}
+                    width={techCanvasWidth}
+                    height={canvasHeight}
+                    className="rounded border border-slate-800/80 block"
+                  />
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Fabric Simulation */}
+        {/* Fabric Surface Simulation */}
         {(displayMode === 'dual' || displayMode === 'fabric') && (
           <div
-            className={`bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden ${
-              displayMode === 'dual' ? 'lg:col-span-5' : 'lg:col-span-12'
+            className={`bg-[#111827] border border-slate-800 rounded-xl overflow-hidden ${
+              displayMode === 'dual' ? 'lg:col-span-6' : 'lg:col-span-12'
             }`}
           >
-            <div className="px-3.5 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-semibold text-xs text-slate-200">
-                Kumaş Yüzey Simülasyonu
-              </span>
-              <button
-                onClick={() =>
-                  downloadSimulationImage(fabricCanvasRef.current, `${pattern.title}_kumas_simulasyonu.png`)
-                }
-                className="flex items-center space-x-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs transition"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>PNG</span>
-              </button>
+            <div className="px-3.5 py-2 bg-[#0F172A] border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+              {/* Left: Title + Checkboxes */}
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-semibold text-xs text-white whitespace-nowrap">
+                  Kumaş Simülasyonu ({totalCourses}K · {totalNeedles}İ)
+                </span>
+
+                <div className="flex flex-wrap items-center gap-3 pl-2.5 border-l border-slate-700/80">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-slate-200 font-medium text-xs">
+                    <input
+                      type="checkbox"
+                      checked={showPoreMesh}
+                      onChange={(e) => setShowPoreMesh(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded bg-[#0B0F17] border-slate-700 text-blue-600 focus:ring-0"
+                    />
+                    <span>Gözenek</span>
+                  </label>
+
+                  <label className="flex items-center gap-1.5 cursor-pointer text-slate-200 font-medium text-xs">
+                    <input
+                      type="checkbox"
+                      checked={showStepNumbers}
+                      onChange={(e) => setShowStepNumbers(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded bg-[#0B0F17] border-slate-700 text-blue-600 focus:ring-0"
+                    />
+                    <span>Δ Adım</span>
+                  </label>
+
+                  <label className="flex items-center gap-1.5 cursor-pointer text-slate-200 font-medium text-xs">
+                    <input
+                      type="checkbox"
+                      checked={showNeedleDots}
+                      onChange={(e) => setShowNeedleDots(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded bg-[#0B0F17] border-slate-700 text-blue-600 focus:ring-0"
+                    />
+                    <span>İğne Noktaları</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Right: Visibility Buttons + Download/Share Buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Guide Bar Layer Visibility Buttons */}
+                <div className="flex items-center gap-1.5 text-xs pr-2.5 border-r border-slate-700/80">
+                  <span className="text-slate-400 font-semibold mr-0.5">Görünürlük:</span>
+                  {activeBars.map((id) => {
+                    const isVis = visibleBars[id] !== false;
+                    const gb = currentGuideBars[id];
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() =>
+                          setVisibleBars((prev) => ({
+                            ...prev,
+                            [id]: !isVis,
+                          }))
+                        }
+                        className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors border cursor-pointer ${
+                          isVis
+                            ? 'text-white border-transparent'
+                            : 'bg-[#0B0F17] text-slate-500 border-slate-800 line-through'
+                        }`}
+                        style={{ backgroundColor: isVis ? gb?.color : undefined }}
+                      >
+                        {id}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadSimulationImage(
+                      fabricCanvasRef.current,
+                      `${pattern.title}_kumas_simulasyonu.png`
+                    )
+                  }
+                  className="flex items-center gap-1 px-2.5 py-1 bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <span>PNG İndir</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    shareSimulationImage(
+                      fabricCanvasRef.current,
+                      `${pattern.title}_kumas_simulasyonu.png`
+                    )
+                  }
+                  className="flex items-center gap-1 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
+                  title="WhatsApp ile Paylaş"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-white" />
+                  <span>WhatsApp Paylaş</span>
+                </button>
+              </div>
             </div>
 
             <div
@@ -1411,21 +2236,39 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
-              className="p-3 overflow-auto max-h-[750px] bg-[#05070d] flex justify-center touch-pan-x touch-pan-y"
+              onWheel={(e) => {
+                if (e.ctrlKey || e.metaKey || e.altKey) {
+                  e.preventDefault();
+                  setIsAutoZoom(false);
+                  const delta = e.deltaY < 0 ? 0.08 : -0.08;
+                  setZoom((prev) => Math.max(0.2, Math.min(2.5, Math.round((prev + delta) * 100) / 100)));
+                }
+              }}
+              className={`px-1 py-1 overflow-auto bg-[#05070d] flex justify-center touch-pan-x touch-pan-y ${
+                isFullscreen || externalFs ? 'h-[calc(100vh-130px)] max-h-none' : 'max-h-[750px]'
+              }`}
             >
               <div
                 style={{
-                  transform: `scale(${zoom})`,
-                  transformOrigin: 'top center',
-                  transition: 'transform 0.15s ease-out',
+                  width: `${Math.round(fabricCanvasWidth * zoom)}px`,
+                  height: `${Math.round(canvasHeight * zoom)}px`,
+                  overflow: 'hidden',
                 }}
               >
-                <canvas
-                  ref={fabricCanvasRef}
-                  width={fabricCanvasWidth}
-                  height={canvasHeight}
-                  className="rounded-xl border border-slate-800 bg-[#0a0f1e]"
-                />
+                <div
+                  style={{
+                    transform: `scale(${zoom})`,
+                    transformOrigin: 'top left',
+                    transition: 'transform 0.12s ease-out',
+                  }}
+                >
+                  <canvas
+                    ref={fabricCanvasRef}
+                    width={fabricCanvasWidth}
+                    height={canvasHeight}
+                    className="rounded border border-slate-800/80 bg-[#0a0f1e] block"
+                  />
+                </div>
               </div>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PatternData, GuideBarId } from '../types';
-import { Search, CheckCircle2, ArrowRight, BookmarkPlus, Trash2 } from 'lucide-react';
+import { Search, CheckCircle2, ArrowRight, BookmarkPlus, Trash2, UserCheck } from 'lucide-react';
+import { PatternThumbnail } from './PatternThumbnail';
 
 interface LibraryTabProps {
   currentPatternId: string;
@@ -8,6 +9,7 @@ interface LibraryTabProps {
   onSelectPattern: (pattern: PatternData) => void;
   onSaveCurrentToLibrary: () => void;
   onDeletePattern?: (id: string) => void;
+  currentAuthorId?: string;
 }
 
 export const LibraryTab: React.FC<LibraryTabProps> = ({
@@ -16,14 +18,22 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   onSelectPattern,
   onSaveCurrentToLibrary,
   onDeletePattern,
+  currentAuthorId = '',
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Tümü');
 
-  const categories = ['Tümü', 'Bukle & Havlı', 'Peluş / Kadife', 'Rölyef & Jakar', 'Otomotiv Halısı', 'Özel'];
+  const categories = [
+    'Tümü',
+    'Bukle & Havlı',
+    'Peluş / Kadife',
+    'Rölyef & Jakar',
+    'Otomotiv Halısı',
+    'Özel',
+  ];
 
   const filteredPatterns = allPatterns.filter((pat) => {
-    const isUserPattern = pat.id.startsWith('user-pat-');
+    const isUserPattern = pat.id.startsWith('user-pat-') || Boolean(pat.authorId);
     const matchesSearch =
       pat.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       pat.description.toLowerCase().includes(searchTerm.toLowerCase());
@@ -35,124 +45,164 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   });
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 space-y-3">
-      {/* Search & Categories Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-          <div className="relative flex-1 sm:max-w-xs">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Desen ara..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-
-          <button
-            onClick={onSaveCurrentToLibrary}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-1 shrink-0"
-          >
-            <BookmarkPlus className="w-3.5 h-3.5" />
-            <span>Mevcut Deseni Kaydet</span>
-          </button>
-        </div>
-
-        {/* Filter categories */}
-        <div className="flex items-center space-x-1 overflow-x-auto pb-1 scrollbar-none">
+    <div className="w-full px-2 py-1.5 space-y-2">
+      {/* Merged Single-Row Filter, Search & Save Toolbar */}
+      <section className="bg-[#111827] border border-slate-800 rounded-lg p-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-bold text-white mr-1">Kütüphane:</span>
           {categories.map((cat) => (
             <button
               key={cat}
+              type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                 selectedCategory === cat
                   ? 'bg-blue-600 text-white'
-                  : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  : 'bg-[#0B0F17] text-slate-300 hover:text-white border border-slate-800'
               }`}
             >
               {cat}
             </button>
           ))}
         </div>
-      </div>
 
-      {/* Pattern Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {filteredPatterns.map((pat) => {
-          const isActive = pat.id === currentPatternId;
-          const isUserCustom = pat.id.startsWith('user-pat-');
+        <div className="flex items-center gap-2">
+          <div className="relative w-48 sm:w-64">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Desen ara..."
+              className="w-full bg-[#0B0F17] border border-slate-700 rounded pl-8 pr-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+            />
+          </div>
 
-          return (
-            <div
-              key={pat.id}
-              className={`rounded-xl border p-3.5 flex flex-col justify-between transition ${
-                isActive
-                  ? 'bg-slate-900 border-blue-500 shadow-md'
-                  : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center space-x-2 text-slate-400">
-                    <span className="font-semibold text-slate-300">{pat.category}</span>
-                    {isUserCustom && <span className="text-emerald-400 font-bold">· Özel</span>}
+          <button
+            type="button"
+            onClick={onSaveCurrentToLibrary}
+            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
+            title="Mevcut Çalışmayı Kütüphaneye Kaydet"
+          >
+            <BookmarkPlus className="w-3.5 h-3.5" />
+            <span>Kaydet</span>
+          </button>
+        </div>
+      </section>
+
+      {/* Pattern Catalog Grid with Fabric Thumbnails */}
+      {filteredPatterns.length === 0 ? (
+        <div className="bg-[#111827] border border-slate-800 rounded-lg p-6 text-center space-y-2">
+          <p className="text-xs font-semibold text-slate-300">Desen bulunamadı.</p>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchTerm('');
+              setSelectedCategory('Tümü');
+            }}
+            className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
+          >
+            Tümünü Göster
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+          {filteredPatterns.map((pat) => {
+            const isActive = pat.id === currentPatternId;
+            const isOwner = Boolean(
+              (pat.authorId && currentAuthorId && pat.authorId === currentAuthorId) ||
+                pat.id.startsWith('user-pat-')
+            );
+            const activeGbCount = Object.keys(pat.guideBars).filter(
+              (k) => pat.guideBars[k as GuideBarId]?.active
+            ).length;
+
+            return (
+              <div
+                key={pat.id}
+                className={`group rounded-lg border p-2.5 flex flex-col justify-between transition-colors ${
+                  isActive
+                    ? 'bg-[#111827] border-blue-500'
+                    : 'bg-[#111827] border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex gap-2.5 items-start">
+                  {/* Pattern mini fabric preview thumbnail */}
+                  <PatternThumbnail pattern={pat} />
+
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span className="font-semibold text-slate-300 truncate">{pat.category}</span>
+                      {isOwner && (
+                        <span
+                          className="text-[10px] bg-emerald-950/70 text-emerald-400 border border-emerald-800/60 px-1 py-0.2 rounded font-medium flex items-center gap-0.5 shrink-0"
+                          title="Sizin deseniniz"
+                        >
+                          <UserCheck className="w-2.5 h-2.5" />
+                          <span>Benim</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <h3 className="text-xs font-bold text-white tracking-tight truncate" title={pat.title}>
+                      {pat.title}
+                    </h3>
+
+                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono tabular-nums">
+                      <span>{pat.rows.length}K</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{activeGbCount}GB</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{pat.machine.gauge}</span>
+                    </div>
                   </div>
-                  {pat.createdAt && (
-                    <span className="text-[11px] text-slate-500 font-mono">{pat.createdAt}</span>
-                  )}
                 </div>
 
-                <h3 className="text-sm font-bold text-white tracking-tight">{pat.title}</h3>
-                <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{pat.description}</p>
+                <div className="pt-2 mt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                  <span className="font-mono tabular-nums text-[10px] text-slate-500 truncate">
+                    {pat.createdAt || ''}
+                  </span>
 
-                <div className="text-[11px] text-slate-500 font-mono pt-1">
-                  Maks. 6 Atkı · GB3: 5D/5B · {pat.rows.length} Kurs
-                </div>
-              </div>
-
-              <div className="pt-3 mt-3 border-t border-slate-800/80 flex items-center justify-between">
-                <span className="text-[11px] text-slate-500">
-                  {Object.keys(pat.guideBars).filter((k) => pat.guideBars[k as GuideBarId]?.active).length} Aktif Tarak
-                </span>
-
-                <div className="flex items-center space-x-1.5">
-                  {isUserCustom && onDeletePattern && (
-                    <button
-                      onClick={() => onDeletePattern(pat.id)}
-                      className="p-1.5 text-slate-500 hover:text-rose-400 rounded transition"
-                      title="Sil"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() => onSelectPattern(pat)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1 ${
-                      isActive
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-blue-600 hover:bg-blue-500 text-white'
-                    }`}
-                  >
-                    {isActive ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Aktif</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Yükle</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </>
+                  <div className="flex items-center gap-1">
+                    {isOwner && onDeletePattern && (
+                      <button
+                        type="button"
+                        onClick={() => onDeletePattern(pat.id)}
+                        className="p-1 text-slate-400 hover:text-rose-400 bg-[#0B0F17] border border-slate-800 rounded transition-colors cursor-pointer"
+                        title="Deseni Sil"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     )}
-                  </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onSelectPattern(pat)}
+                      className={`px-2 py-0.8 rounded text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap ${
+                        isActive
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-blue-600 hover:bg-blue-500 text-white'
+                      }`}
+                    >
+                      {isActive ? (
+                        <>
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Aktif</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Yükle</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
