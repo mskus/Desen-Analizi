@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { PatternData, PatternRow, GuideBarId, ActiveTab } from '../types';
 import {
   Plus,
@@ -86,6 +87,18 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   const tableCardRef = useRef<HTMLDivElement | null>(null);
   const [isCanvasFullscreen, setIsCanvasFullscreen] = useState(false);
   const [isTableFullscreen, setIsTableFullscreen] = useState(false);
+
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const updateSlot = () => {
+      const el = document.getElementById('editor-header-slot');
+      if (el) setHeaderSlot(el);
+    };
+    updateSlot();
+    const timer = setTimeout(updateSlot, 50);
+    return () => clearTimeout(timer);
+  }, []);
 
   const toggleFullscreen = (ref: React.RefObject<HTMLDivElement | null>, isTable = false) => {
     if (onToggleFullscreen) {
@@ -1184,17 +1197,295 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     showMsg(`${selectedGbForQuick} zincir kodu uygulandı.`);
   };
 
+  const toolbarContent = (
+    <div className="flex flex-wrap items-center justify-between sm:justify-center gap-1.5 sm:gap-2 text-xs">
+      {/* Left: Guide Bar Selection + Independent Needle Count (Max 96) */}
+      <div className="flex flex-wrap items-center justify-between sm:justify-start gap-1.5 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-1 bg-[#0B0F17] p-0.5 rounded border border-slate-800">
+          <span className="text-[11px] font-semibold text-slate-400 px-1 hidden xs:inline">Tarak:</span>
+          {activeBars.map((gbId) => {
+            const gb = pattern.guideBars[gbId];
+            const isSelected = activeGbId === gbId;
+            return (
+              <button
+                key={gbId}
+                type="button"
+                onClick={() => setActiveGbId(gbId)}
+                className={`px-1.5 sm:px-2 py-0.5 rounded text-xs font-bold border transition-colors cursor-pointer ${
+                  isSelected
+                    ? 'text-white border-transparent'
+                    : 'bg-[#111827] text-slate-400 border-slate-800 hover:text-white'
+                }`}
+                style={{ backgroundColor: isSelected ? gb.color : undefined }}
+              >
+                {gbId}
+              </button>
+            );
+          })}
+          {guideBarCalculations[activeGbId] && (
+            <div className="ml-0.5 sm:ml-1">
+              <GuideBarCalcBadge metrics={guideBarCalculations[activeGbId]!} compact={true} />
+            </div>
+          )}
+        </div>
+
+        {/* Independent Needle Count Control (Direct Text + Steppers [-] [+]) */}
+        <div
+          className="flex items-center gap-1 bg-[#0B0F17] px-1.5 py-0.5 rounded border border-slate-800"
+          title="Şema İğne Sayısı (8 - 96)"
+        >
+          <span className="font-semibold text-xs text-slate-400 whitespace-nowrap">İğne:</span>
+          <button
+            type="button"
+            onClick={() => {
+              const next = Math.max(8, editorNeedles - 1);
+              setEditorNeedlesInputText(String(next));
+              setEditorNeedles(next);
+            }}
+            className="w-4.5 h-4.5 flex items-center justify-center bg-[#111827] border border-slate-700 hover:border-slate-500 rounded text-slate-300 hover:text-white cursor-pointer"
+            title="İğne Eksilt (-1)"
+          >
+            <Minus className="w-3 h-3" />
+          </button>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={editorNeedlesInputText}
+            onChange={(e) => {
+              const valStr = e.target.value;
+              setEditorNeedlesInputText(valStr);
+              const parsed = parseInt(valStr, 10);
+              if (!isNaN(parsed) && parsed >= 8 && parsed <= 96) {
+                setEditorNeedles(parsed);
+              }
+            }}
+            onBlur={() => {
+              const parsed = parseInt(editorNeedlesInputText, 10);
+              const clamped = isNaN(parsed) ? 32 : Math.max(8, Math.min(96, parsed));
+              setEditorNeedlesInputText(String(clamped));
+              if (clamped !== editorNeedles) {
+                setEditorNeedles(clamped);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+            className="w-9 sm:w-10 bg-[#111827] border border-slate-700 rounded px-1 py-0.5 text-center font-mono font-bold text-blue-400 focus:outline-none focus:border-blue-500 tabular-nums text-xs"
+            title="Şema İğne Sayısı"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              const next = Math.min(96, editorNeedles + 1);
+              setEditorNeedlesInputText(String(next));
+              setEditorNeedles(next);
+            }}
+            className="w-4.5 h-4.5 flex items-center justify-center bg-[#111827] border border-slate-700 hover:border-slate-500 rounded text-slate-300 hover:text-white cursor-pointer"
+            title="İğne Artır (+1)"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* Center: Pattern & Course Actions */}
+      <div className="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          onClick={addRow}
+          className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+          title="Yeni Kurs Satırı Ekle"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Kurs</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={deleteLastRow}
+          disabled={rows.length <= 1}
+          className="px-2 py-1 bg-rose-950/50 hover:bg-rose-900/60 border border-rose-800/80 text-rose-200 disabled:opacity-30 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+          title="Son Kursu Sil"
+        >
+          <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+          <span>Sil</span>
+        </button>
+
+        {copiedRow && (
+          <button
+            type="button"
+            onClick={pasteRow}
+            className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+            title="Kopyalanan Satırı Yapıştır"
+          >
+            <ClipboardPaste className="w-3.5 h-3.5" />
+            <span>Yapıştır</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={duplicatePattern}
+          className="px-1.5 sm:px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+          title="Deseni 2x Çoğalt"
+        >
+          <CopyPlus className="w-3.5 h-3.5 text-blue-400" />
+          <span>2x</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={mirrorPattern}
+          className="px-1.5 sm:px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+          title="Simetrik Aynala"
+        >
+          <FlipVertical className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="hidden xs:inline">Aynala</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleGenerateRandomPattern}
+          className="px-1.5 sm:px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+          title="Otomatik Desen Üret"
+        >
+          <Dices className="w-3.5 h-3.5 text-blue-400" />
+          <span className="hidden xs:inline">Üret</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setIsLivePreviewOpen((prev) => !prev)}
+          className={`p-1 rounded border transition-colors cursor-pointer ${
+            isLivePreviewOpen
+              ? 'bg-blue-600 text-white border-blue-500'
+              : 'bg-[#0B0F17] text-slate-300 border-slate-700 hover:bg-slate-800'
+          }`}
+          title="Ufak Kumaş Önizleme"
+        >
+          <Eye className="w-3.5 h-3.5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={onUndo}
+          disabled={!canUndo}
+          className="p-1 bg-[#0B0F17] border border-slate-700 text-slate-200 disabled:opacity-30 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+          title="Geri Al"
+        >
+          <Undo2 className="w-3.5 h-3.5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={onRedo}
+          disabled={!canRedo}
+          className="p-1 bg-[#0B0F17] border border-slate-700 text-slate-200 disabled:opacity-30 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+          title="İleri Al"
+        >
+          <Redo2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Right: Zoom, Fit */}
+      <div className="flex items-center gap-1">
+        <div
+          onWheel={(e) => {
+            e.preventDefault();
+            setIsAutoZoom(false);
+            const delta = e.deltaY < 0 ? 0.05 : -0.05;
+            setZoom((z) => Math.max(0.35, Math.min(2.2, Math.round((z + delta) * 100) / 100)));
+          }}
+          className="flex items-center gap-0.5 sm:gap-1 bg-[#0B0F17] p-0.5 sm:p-1 rounded-lg border border-slate-800"
+          title="Zoom (Farenin orta tekerleği ile hızlı yakınlaştır/uzaklaştır)"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setIsAutoZoom(false);
+              setZoom((z) => Math.max(0.35, Math.round((z - 0.15) * 100) / 100));
+            }}
+            className="text-slate-300 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+            title="Uzaklaştır"
+          >
+            <ZoomOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          </button>
+          <span className="text-[11px] sm:text-xs font-mono font-bold text-slate-200 min-w-[36px] sm:min-w-[40px] text-center tabular-nums">
+            %{Math.round(zoom * 100)}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setIsAutoZoom(false);
+              setZoom((z) => Math.min(2.2, Math.round((z + 0.15) * 100) / 100));
+            }}
+            className="text-slate-300 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+            title="Yakınlaştır"
+          >
+            <ZoomIn className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (containerRef.current) {
+                const availWidth = containerRef.current.clientWidth - 12;
+                if (availWidth > 0 && canvasWidth > 0) {
+                  const fitW = availWidth / canvasWidth;
+                  const clamped = Math.max(
+                    0.3,
+                    Math.min(1.6, Math.floor(fitW * 100) / 100)
+                  );
+                  setIsAutoZoom(false);
+                  setZoom(clamped);
+                }
+              }
+            }}
+            className="p-1 rounded bg-[#111827] text-slate-200 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors cursor-pointer"
+            title="Yatay Sığdır"
+          >
+            <MoveHorizontal className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsAutoZoom(true);
+              setTimeout(() => calculateEditorFitZoom(), 20);
+            }}
+            className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors cursor-pointer"
+            title="Dikey Sığdır"
+          >
+            <MoveVertical className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="w-full px-1.5 sm:px-2 py-1.5 space-y-1.5">
       {/* Feedback Toast */}
       {actionMsg && (
-        <div className="bg-emerald-950/90 border border-emerald-700 text-emerald-100 px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 sticky top-12 z-40">
+        <div className="bg-emerald-950/90 border border-emerald-700 text-emerald-100 px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 fixed top-14 right-4 z-50 shadow-xl">
           <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
           <span>{actionMsg}</span>
         </div>
       )}
 
-      {/* SECTION 1: LIVE DRAG-AND-DROP POINT PAPER CANVAS WITH MERGED TOOLBAR */}
+      {/* Render Operator Toolbar directly inside sticky Header slot via Portal */}
+      {headerSlot ? (
+        createPortal(toolbarContent, headerSlot)
+      ) : (
+        <div className="bg-[#0F172A] p-1.5 sm:p-2 border border-slate-800 rounded-lg shadow-xl">
+          {toolbarContent}
+        </div>
+      )}
+
+      {/* SECTION 1: LIVE DRAG-AND-DROP POINT PAPER CANVAS */}
       <section
         ref={canvasCardRef}
         onPointerLeave={() => {
@@ -1202,275 +1493,8 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
           draggingRef.current = null;
           setDraggingNode(null);
         }}
-        className="bg-[#111827] border border-slate-800 rounded-lg overflow-hidden relative"
+        className="bg-[#111827] border border-slate-800 rounded-lg relative"
       >
-        {/* Unified Single-Row Canvas & Operator Toolbar */}
-        <div className="bg-[#0F172A] px-1.5 sm:px-2 py-1.5 border-b border-slate-800 flex flex-wrap items-center justify-between sm:justify-center gap-1.5 sm:gap-2 text-xs">
-          {/* Left: Guide Bar Selection + Independent Needle Count (Max 96) */}
-          <div className="flex flex-wrap items-center justify-between sm:justify-start gap-1.5 w-full sm:w-auto">
-            <div className="flex flex-wrap items-center gap-1 bg-[#0B0F17] p-0.5 rounded border border-slate-800">
-              <span className="text-[11px] font-semibold text-slate-400 px-1 hidden xs:inline">Tarak:</span>
-              {activeBars.map((gbId) => {
-                const gb = pattern.guideBars[gbId];
-                const isSelected = activeGbId === gbId;
-                return (
-                  <button
-                    key={gbId}
-                    type="button"
-                    onClick={() => setActiveGbId(gbId)}
-                    className={`px-1.5 sm:px-2 py-0.5 rounded text-xs font-bold border transition-colors cursor-pointer ${
-                      isSelected
-                        ? 'text-white border-transparent'
-                        : 'bg-[#111827] text-slate-400 border-slate-800 hover:text-white'
-                    }`}
-                    style={{ backgroundColor: isSelected ? gb.color : undefined }}
-                  >
-                    {gbId}
-                  </button>
-                );
-              })}
-              {guideBarCalculations[activeGbId] && (
-                <div className="ml-0.5 sm:ml-1">
-                  <GuideBarCalcBadge metrics={guideBarCalculations[activeGbId]!} compact={true} />
-                </div>
-              )}
-            </div>
-
-            {/* Independent Needle Count Control (Direct Text + Steppers [-] [+]) */}
-            <div
-              className="flex items-center gap-1 bg-[#0B0F17] px-1.5 py-0.5 rounded border border-slate-800"
-              title="Şema İğne Sayısı (8 - 96)"
-            >
-              <span className="font-semibold text-xs text-slate-400 whitespace-nowrap">İğne:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = Math.max(8, editorNeedles - 1);
-                  setEditorNeedlesInputText(String(next));
-                  setEditorNeedles(next);
-                }}
-                className="w-4.5 h-4.5 flex items-center justify-center bg-[#111827] border border-slate-700 hover:border-slate-500 rounded text-slate-300 hover:text-white cursor-pointer"
-                title="İğne Eksilt (-1)"
-              >
-                <Minus className="w-3 h-3" />
-              </button>
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={editorNeedlesInputText}
-                onChange={(e) => {
-                  const valStr = e.target.value;
-                  setEditorNeedlesInputText(valStr);
-                  const parsed = parseInt(valStr, 10);
-                  if (!isNaN(parsed) && parsed >= 8 && parsed <= 96) {
-                    setEditorNeedles(parsed);
-                  }
-                }}
-                onBlur={() => {
-                  const parsed = parseInt(editorNeedlesInputText, 10);
-                  const clamped = isNaN(parsed) ? 32 : Math.max(8, Math.min(96, parsed));
-                  setEditorNeedlesInputText(String(clamped));
-                  if (clamped !== editorNeedles) {
-                    setEditorNeedles(clamped);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    (e.target as HTMLInputElement).blur();
-                  }
-                }}
-                className="w-9 sm:w-10 bg-[#111827] border border-slate-700 rounded px-1 py-0.5 text-center font-mono font-bold text-blue-400 focus:outline-none focus:border-blue-500 tabular-nums text-xs"
-                title="Şema İğne Sayısı"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const next = Math.min(96, editorNeedles + 1);
-                  setEditorNeedlesInputText(String(next));
-                  setEditorNeedles(next);
-                }}
-                className="w-4.5 h-4.5 flex items-center justify-center bg-[#111827] border border-slate-700 hover:border-slate-500 rounded text-slate-300 hover:text-white cursor-pointer"
-                title="İğne Artır (+1)"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
-            </div>
-          </div>
-
-          {/* Center: Pattern & Course Actions */}
-          <div className="flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              onClick={addRow}
-              className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
-              title="Yeni Kurs Satırı Ekle"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Kurs</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={deleteLastRow}
-              disabled={rows.length <= 1}
-              className="px-2 py-1 bg-rose-950/50 hover:bg-rose-900/60 border border-rose-800/80 text-rose-200 disabled:opacity-30 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
-              title="Son Kursu Sil"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-              <span>Sil</span>
-            </button>
-
-            {copiedRow && (
-              <button
-                type="button"
-                onClick={pasteRow}
-                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
-                title="Kopyalanan Satırı Yapıştır"
-              >
-                <ClipboardPaste className="w-3.5 h-3.5" />
-                <span>Yapıştır</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={duplicatePattern}
-              className="px-1.5 sm:px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
-              title="Deseni 2x Çoğalt"
-            >
-              <CopyPlus className="w-3.5 h-3.5 text-blue-400" />
-              <span>2x</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={mirrorPattern}
-              className="px-1.5 sm:px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
-              title="Simetrik Aynala"
-            >
-              <FlipVertical className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden xs:inline">Aynala</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleGenerateRandomPattern}
-              className="px-1.5 sm:px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
-              title="Otomatik Desen Üret"
-            >
-              <Dices className="w-3.5 h-3.5 text-blue-400" />
-              <span className="hidden xs:inline">Üret</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsLivePreviewOpen((prev) => !prev)}
-              className={`p-1 rounded border transition-colors cursor-pointer ${
-                isLivePreviewOpen
-                  ? 'bg-blue-600 text-white border-blue-500'
-                  : 'bg-[#0B0F17] text-slate-300 border-slate-700 hover:bg-slate-800'
-              }`}
-              title="Ufak Kumaş Önizleme"
-            >
-              <Eye className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={onUndo}
-              disabled={!canUndo}
-              className="p-1 bg-[#0B0F17] border border-slate-700 text-slate-200 disabled:opacity-30 rounded hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Geri Al"
-            >
-              <Undo2 className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={onRedo}
-              disabled={!canRedo}
-              className="p-1 bg-[#0B0F17] border border-slate-700 text-slate-200 disabled:opacity-30 rounded hover:bg-slate-800 transition-colors cursor-pointer"
-              title="İleri Al"
-            >
-              <Redo2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Right: Zoom, Fit */}
-          <div className="flex items-center gap-1">
-            <div
-              onWheel={(e) => {
-                e.preventDefault();
-                setIsAutoZoom(false);
-                const delta = e.deltaY < 0 ? 0.05 : -0.05;
-                setZoom((z) => Math.max(0.35, Math.min(2.2, Math.round((z + delta) * 100) / 100)));
-              }}
-              className="flex items-center gap-0.5 sm:gap-1 bg-[#0B0F17] p-0.5 sm:p-1 rounded-lg border border-slate-800"
-              title="Zoom (Farenin orta tekerleği ile hızlı yakınlaştır/uzaklaştır)"
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAutoZoom(false);
-                  setZoom((z) => Math.max(0.35, Math.round((z - 0.15) * 100) / 100));
-                }}
-                className="text-slate-300 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Uzaklaştır"
-              >
-                <ZoomOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </button>
-              <span className="text-[11px] sm:text-xs font-mono font-bold text-slate-200 min-w-[36px] sm:min-w-[40px] text-center tabular-nums">
-                %{Math.round(zoom * 100)}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAutoZoom(false);
-                  setZoom((z) => Math.min(2.2, Math.round((z + 0.15) * 100) / 100));
-                }}
-                className="text-slate-300 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Yakınlaştır"
-              >
-                <ZoomIn className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (containerRef.current) {
-                    const availWidth = containerRef.current.clientWidth - 12;
-                    if (availWidth > 0 && canvasWidth > 0) {
-                      const fitW = availWidth / canvasWidth;
-                      const clamped = Math.max(
-                        0.3,
-                        Math.min(1.6, Math.floor(fitW * 100) / 100)
-                      );
-                      setIsAutoZoom(false);
-                      setZoom(clamped);
-                    }
-                  }
-                }}
-                className="p-1 rounded bg-[#111827] text-slate-200 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors cursor-pointer"
-                title="Yatay Sığdır"
-              >
-                <MoveHorizontal className="w-3.5 h-3.5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAutoZoom(true);
-                  setTimeout(() => calculateEditorFitZoom(), 20);
-                }}
-                className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors cursor-pointer"
-                title="Dikey Sığdır"
-              >
-                <MoveVertical className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
 
         {/* Canvas Viewport */}
         <div

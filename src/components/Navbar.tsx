@@ -259,6 +259,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
       </div>
+
+      {activeTab === 'editor' && (
+        <div
+          id="editor-header-slot"
+          className="border-t border-slate-800/80 px-1 sm:px-2 py-1 bg-[#0F172A] shadow-md transition-all"
+        />
+      )}
     </header>
   );
 };
