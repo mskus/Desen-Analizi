@@ -60,12 +60,58 @@
         }
       },
       "required": ["id", "authorId", "title", "category"]
+    },
+    "AccessLog": {
+      "title": "AccessLog",
+      "description": "Log entry tracking visit, share created, share opened, or session exit.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["visit", "share_created", "share_opened", "exit"] },
+        "timestamp": { "type": "string", "maxLength": 60 },
+        "sessionId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "type", "timestamp"]
+    },
+    "SharedLink": {
+      "title": "SharedLink",
+      "description": "Metadata for a shared pattern link.",
+      "type": "object",
+      "properties": {
+        "stoken": { "type": "string", "maxLength": 128 },
+        "patternId": { "type": "string", "maxLength": 128 },
+        "patternTitle": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["stoken", "patternId", "createdAt"]
+    },
+    "ActiveUser": {
+      "title": "ActiveUser",
+      "description": "Real-time presence record for currently active online user session.",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string", "maxLength": 128 },
+        "lastActiveAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["sessionId", "lastActiveAt"]
     }
   },
   "firestore": {
     "/patterns/{patternId}": {
       "schema": "Pattern",
       "description": "Shared community repository of warp knitting patterns."
+    },
+    "/access_logs/{logId}": {
+      "schema": "AccessLog",
+      "description": "Access, visit, exit, and link open logging entries."
+    },
+    "/shared_links/{linkId}": {
+      "schema": "SharedLink",
+      "description": "Shared link registry with creator metadata."
+    },
+    "/active_users/{userId}": {
+      "schema": "ActiveUser",
+      "description": "Live active user heartbeats."
     }
   }
 }

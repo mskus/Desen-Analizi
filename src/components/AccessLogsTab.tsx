@@ -6,6 +6,7 @@ import {
   subscribeToActiveUsers,
   deleteAccessLog,
   getSessionId,
+  getCachedAccessLogs,
 } from '../services/loggingService';
 import {
   ShieldAlert,
@@ -22,7 +23,9 @@ import {
   Check,
   Clock,
   Radio,
-  UserCheck,
+  LogOut,
+  LogIn,
+  Globe,
 } from 'lucide-react';
 
 interface AccessLogsTabProps {
@@ -33,8 +36,11 @@ const PASSWORD = '741852';
 
 export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternById }) => {
   const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
-    if (typeof sessionStorage !== 'undefined') {
-      return sessionStorage.getItem('warpknitt_logs_unlocked') === 'true';
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('warpknitt_logs_unlocked') === 'true') {
+      return true;
+    }
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('warpknitt_logs_unlocked') === 'true') {
+      return true;
     }
     return false;
   });
@@ -42,7 +48,8 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState(false);
 
-  const [logs, setLogs] = useState<AccessLogItem[]>([]);
+  // Initialize with local cache so logs are never blank on page reload
+  const [logs, setLogs] = useState<AccessLogItem[]>(() => getCachedAccessLogs());
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<string>('Tümü');
@@ -69,6 +76,9 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
     if (passwordInput.trim() === PASSWORD) {
       setIsUnlocked(true);
       setAuthError(false);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('warpknitt_logs_unlocked', 'true');
+      }
       if (typeof sessionStorage !== 'undefined') {
         sessionStorage.setItem('warpknitt_logs_unlocked', 'true');
       }
@@ -80,6 +90,9 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
 
   const handleLockOut = () => {
     setIsUnlocked(false);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('warpknitt_logs_unlocked');
+    }
     if (typeof sessionStorage !== 'undefined') {
       sessionStorage.removeItem('warpknitt_logs_unlocked');
     }
@@ -87,6 +100,7 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
 
   const handleDeleteLog = (id: string) => {
     deleteAccessLog(id).then(() => {
+      setLogs((prev) => prev.filter((l) => l.id !== id));
       setToastMsg('Log kaydı silindi.');
       setTimeout(() => setToastMsg(null), 2000);
     });
@@ -101,9 +115,9 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
           </div>
 
           <div>
-            <h2 className="text-base font-bold text-white tracking-tight">Sistem Erişim & Paylaşım Logları</h2>
+            <h2 className="text-base font-bold text-white tracking-tight">Sistem Giriş-Çıkış & Paylaşım Logları</h2>
             <p className="text-xs text-slate-400 mt-1">
-              Bu alana sadece yetkili şifreye sahip kişiler erişebilir.
+              Veri tabanında kayıtlı canlı loglara erişmek için 6 haneli şifreyi giriniz.
             </p>
           </div>
 
@@ -148,7 +162,8 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
   const filteredLogs = logs.filter((log) => {
     const matchesType =
       selectedType === 'Tümü' ||
-      (selectedType === 'Ziyaret' && log.type === 'visit') ||
+      (selectedType === 'Giriş' && log.type === 'visit') ||
+      (selectedType === 'Çıkış' && log.type === 'exit') ||
       (selectedType === 'Paylaşım' && log.type === 'share_created') ||
       (selectedType === 'Açılan Link' && log.type === 'share_opened');
 
@@ -160,12 +175,14 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
       (log.device?.os || '').toLowerCase().includes(searchLower) ||
       (log.device?.browser || '').toLowerCase().includes(searchLower) ||
       (log.patternTitle || '').toLowerCase().includes(searchLower) ||
+      (log.duration || '').toLowerCase().includes(searchLower) ||
       (log.shareOrigin?.location || '').toLowerCase().includes(searchLower);
 
     return matchesType && matchesSearch;
   });
 
   const visitCount = logs.filter((l) => l.type === 'visit').length;
+  const exitCount = logs.filter((l) => l.type === 'exit').length;
   const shareCount = logs.filter((l) => l.type === 'share_created').length;
   const openCount = logs.filter((l) => l.type === 'share_opened').length;
 
@@ -188,13 +205,13 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
             </div>
             <div>
               <h2 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                <span>Erişim & Konum Log Analizi</span>
+                <span>Erişim, Giriş-Çıkış & Paylaşım Logları</span>
                 <span className="text-[10px] font-mono px-2 py-0.5 bg-emerald-950 text-emerald-400 border border-emerald-800 rounded-full">
-                  Kilit Açıldı
+                  Kalıcı Veri Tabanı
                 </span>
               </h2>
               <p className="text-[11px] text-slate-400">
-                Canlı aktif kullanıcılar, giriş yapan cihazlar, konumlar ve paylaşılan linkler.
+                Canlı kullanıcı sayısı anlık güncellenir. Giriş, çıkış, paylaşılan ve açılan linkler veri tabanında saklanır.
               </p>
             </div>
           </div>
@@ -210,14 +227,14 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
           </button>
         </div>
 
-        {/* Metric Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+        {/* Metric Cards (6 cards) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
           {/* Live Online Users Card */}
           <div className="bg-emerald-950/40 border border-emerald-800/80 p-2.5 rounded-lg flex items-center justify-between">
             <div>
               <span className="text-emerald-400 text-[11px] font-medium flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>Canlı Aktif</span>
+                <span>Canlı Kişi Sayısı</span>
               </span>
               <strong className="text-base font-bold text-emerald-300 font-mono tabular-nums">{activeUsers.length} Online</strong>
             </div>
@@ -226,7 +243,7 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
 
           <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
             <div>
-              <span className="text-slate-400 text-[11px] font-medium block">Toplam Log</span>
+              <span className="text-slate-400 text-[11px] font-medium block">Toplam Kayıt</span>
               <strong className="text-sm font-bold text-white font-mono tabular-nums">{logs.length}</strong>
             </div>
             <Clock className="w-4 h-4 text-blue-400 shrink-0" />
@@ -234,10 +251,18 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
 
           <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
             <div>
-              <span className="text-slate-400 text-[11px] font-medium block">Site Ziyareti</span>
+              <span className="text-slate-400 text-[11px] font-medium block">Girişler</span>
               <strong className="text-sm font-bold text-emerald-400 font-mono tabular-nums">{visitCount}</strong>
             </div>
-            <Eye className="w-4 h-4 text-emerald-400 shrink-0" />
+            <LogIn className="w-4 h-4 text-emerald-400 shrink-0" />
+          </div>
+
+          <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-slate-400 text-[11px] font-medium block">Çıkışlar</span>
+              <strong className="text-sm font-bold text-rose-400 font-mono tabular-nums">{exitCount}</strong>
+            </div>
+            <LogOut className="w-4 h-4 text-rose-400 shrink-0" />
           </div>
 
           <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
@@ -248,7 +273,7 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
             <Share2 className="w-4 h-4 text-purple-400 shrink-0" />
           </div>
 
-          <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between col-span-2 sm:col-span-1">
+          <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
             <div>
               <span className="text-slate-400 text-[11px] font-medium block">Açılan Link</span>
               <strong className="text-sm font-bold text-amber-400 font-mono tabular-nums">{openCount}</strong>
@@ -266,9 +291,9 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                 </span>
-                <span>Anlık Aktif Kullanıcı Listesi (Canlı Firestore Kaydı)</span>
+                <span>Anlık Canlı Kullanıcılar (Giriş Yapan Kişiler)</span>
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">{activeUsers.length} Bağlantı</span>
+              <span className="text-[10px] text-slate-400 font-mono">{activeUsers.length} Kişi Aktif</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
@@ -299,10 +324,16 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
                         )}
                       </div>
 
-                      <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+                      <div className="text-[10px] text-slate-400 font-mono flex flex-wrap items-center gap-1.5">
                         <span>İP: {u.location?.ip || 'Gizli'}</span>
                         <span>·</span>
                         <span>{u.device.os} / {u.device.browser}</span>
+                        {u.device.screen && (
+                          <>
+                            <span>·</span>
+                            <span>{u.device.screen}</span>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -319,7 +350,7 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
         {/* Filter & Search Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            {['Tümü', 'Ziyaret', 'Paylaşım', 'Açılan Link'].map((type) => (
+            {['Tümü', 'Giriş', 'Çıkış', 'Paylaşım', 'Açılan Link'].map((type) => (
               <button
                 key={type}
                 type="button"
@@ -341,7 +372,7 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Konum, Şehir, İP veya Cihaz ara..."
+              placeholder="Konum, İP, Cihaz veya Süre ara..."
               className="w-full bg-[#0B0F17] border border-slate-700 rounded pl-8 pr-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -377,8 +408,20 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
                   <div className="flex items-center gap-2">
                     {log.type === 'visit' && (
                       <span className="px-2 py-0.5 rounded font-bold text-[11px] bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1">
-                        <Eye className="w-3 h-3" />
-                        <span>Site Ziyareti</span>
+                        <LogIn className="w-3 h-3" />
+                        <span>Siteye Giriş Yapıldı</span>
+                      </span>
+                    )}
+
+                    {log.type === 'exit' && (
+                      <span className="px-2 py-0.5 rounded font-bold text-[11px] bg-rose-950 text-rose-400 border border-rose-800 flex items-center gap-1">
+                        <LogOut className="w-3 h-3" />
+                        <span>Siteden Ayrıldı (Çıkış)</span>
+                        {log.duration && (
+                          <span className="text-slate-300 font-mono font-normal ml-1">
+                            · Oturum: {log.duration}
+                          </span>
+                        )}
                       </span>
                     )}
 
@@ -392,15 +435,20 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
                     {log.type === 'share_opened' && (
                       <span className="px-2 py-0.5 rounded font-bold text-[11px] bg-amber-950 text-amber-400 border border-amber-800 flex items-center gap-1">
                         <ExternalLink className="w-3 h-3" />
-                        <span>Link Açıldı</span>
+                        <span>Paylaşılan Link Açıldı</span>
                       </span>
                     )}
 
                     {log.patternTitle && (
-                      <span className="font-bold text-white flex items-center gap-1">
-                        <span>Desen:</span>
-                        <span className="text-blue-400">{log.patternTitle}</span>
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => log.patternId && onSelectPatternById && onSelectPatternById(log.patternId)}
+                        className="font-bold text-white hover:text-blue-400 flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Deseni Görüntüle"
+                      >
+                        <span className="text-slate-400">Desen:</span>
+                        <span className="text-blue-400 underline">{log.patternTitle}</span>
+                      </button>
                     )}
                   </div>
 
@@ -422,13 +470,18 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {/* Left Column: Client / Opener Device & Location */}
                   <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-slate-300 font-bold border-b border-slate-800/80 pb-1">
-                      {log.device?.isMobile ? (
-                        <Smartphone className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                      ) : (
-                        <Monitor className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                      )}
-                      <span>{log.type === 'share_opened' ? 'Açan Cihaz & Konum' : 'Cihaz & Konum'}</span>
+                    <div className="flex items-center justify-between text-slate-300 font-bold border-b border-slate-800/80 pb-1">
+                      <div className="flex items-center gap-1.5">
+                        {log.device?.isMobile ? (
+                          <Smartphone className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                        ) : (
+                          <Monitor className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                        )}
+                        <span>{log.type === 'share_opened' ? 'Linki Açan Cihaz & Konum' : 'Cihaz & Konum Bilgileri'}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        {log.device?.isMobile ? 'Mobil' : 'Masaüstü'}
+                      </span>
                     </div>
 
                     <div className="space-y-1 font-mono text-[11px] text-slate-300">
@@ -442,22 +495,29 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
 
                       <div className="flex items-center justify-between">
                         <span className="text-slate-400 font-sans">İP Adresi:</span>
-                        <span className="text-slate-200">{log.location?.ip || 'Gizli'}</span>
+                        <span className="text-slate-200 font-semibold">{log.location?.ip || 'Gizli'}</span>
                       </div>
 
                       <div className="flex items-center justify-between">
                         <span className="text-slate-400 font-sans">Cihaz / İŞ:</span>
-                        <span className="text-slate-200">{log.device?.os} ({log.device?.isMobile ? 'Mobil' : 'Masaüstü'})</span>
+                        <span className="text-slate-200">{log.device?.os}</span>
                       </div>
 
                       <div className="flex items-center justify-between">
                         <span className="text-slate-400 font-sans">Tarayıcı:</span>
                         <span className="text-slate-200">{log.device?.browser}</span>
                       </div>
+
+                      {log.device?.screen && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-sans">Çözünürlük:</span>
+                          <span className="text-slate-300">{log.device.screen}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Right Column: Share Link Origin Details (If opened via shared link) */}
+                  {/* Right Column: Share Link Origin Details or Session Info */}
                   {log.type === 'share_opened' && log.shareOrigin ? (
                     <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-amber-900/40 space-y-1.5">
                       <div className="flex items-center justify-between text-amber-300 font-bold border-b border-slate-800/80 pb-1">
@@ -485,11 +545,33 @@ export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternByI
                           <span className="text-slate-400 font-sans">Paylaşan Cihaz:</span>
                           <span className="text-slate-300">{log.shareOrigin.device}</span>
                         </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-sans">Orijinal Tarih:</span>
+                          <span className="text-slate-400 text-[10px]">
+                            {new Date(log.shareOrigin.timestamp).toLocaleString('tr-TR')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : log.type === 'exit' ? (
+                    <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-rose-900/30 flex flex-col justify-center space-y-1 text-slate-300 font-mono text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-sans">İşlem:</span>
+                        <span className="text-rose-400 font-bold">Oturum Sonlandı</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-sans">Sitede Kalma Süresi:</span>
+                        <span className="text-amber-300 font-bold">{log.duration || 'Bilinmiyor'}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-sans">Oturum ID:</span>
+                        <span className="text-slate-400 text-[10px] truncate max-w-[150px]">{log.sessionId || '-'}</span>
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-center text-slate-500 font-mono text-[11px]">
-                      <span>{log.type === 'share_created' ? 'Paylaşım bağlantısı oluşturuldu.' : 'Direkt Ziyaret'}</span>
+                    <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-center text-slate-400 font-mono text-[11px]">
+                      <span>{log.type === 'share_created' ? 'Paylaşım bağlantısı oluşturuldu.' : 'Siteye doğrudan erişim sağlandı.'}</span>
                     </div>
                   )}
                 </div>

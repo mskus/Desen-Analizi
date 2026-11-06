@@ -16,7 +16,7 @@ import {
   subscribeToCloudPatterns,
   getClientAuthorId,
 } from './services/patternSyncService';
-import { logSiteVisit, trackSharedLinkOpened, startPresencePing } from './services/loggingService';
+import { logSiteVisit, logSiteExit, trackSharedLinkOpened, startPresencePing } from './services/loggingService';
 import { Check } from 'lucide-react';
 
 export default function App() {
@@ -103,12 +103,22 @@ export default function App() {
     localStorage.setItem('warpknitt_custom_patterns', JSON.stringify(customPatterns));
   }, [customPatterns]);
 
-  // Log site visit & start real-time presence heartbeat on boot
+  // Log site visit & start real-time presence heartbeat on boot + track exits
   useEffect(() => {
     logSiteVisit().catch((err) => console.error('Site visit log error:', err));
     const stopPresence = startPresencePing();
+
+    const handleExit = () => {
+      logSiteExit().catch(() => {});
+    };
+
+    window.addEventListener('beforeunload', handleExit);
+    window.addEventListener('pagehide', handleExit);
+
     return () => {
       stopPresence();
+      window.removeEventListener('beforeunload', handleExit);
+      window.removeEventListener('pagehide', handleExit);
     };
   }, []);
 
@@ -327,6 +337,7 @@ export default function App() {
             onChangeRows={handleUpdateRows}
             fabricWidthCm={fabricWidthCm}
             onChangeFabricWidth={setFabricWidthCm}
+            onNavigateToLogs={() => setActiveTab('logs')}
           />
         )}
 
@@ -408,6 +419,10 @@ export default function App() {
         onChangeSafety={handleUpdateSafety}
         rows={currentPattern.rows}
         onChangeRows={handleUpdateRows}
+        onNavigateToLogs={() => {
+          setIsSafetyModalOpen(false);
+          setActiveTab('logs');
+        }}
       />
 
       <SavePatternModal

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { GuideBarId, GuideBarConfig, PatternRow, MachineProfile, SafetyConfig } from '../types';
-import { AlertTriangle, Info, HelpCircle } from 'lucide-react';
+import { AlertTriangle, Info, HelpCircle, X } from 'lucide-react';
 
 export interface GuideBarCalculationResult {
   gbId: GuideBarId;
@@ -163,11 +163,28 @@ export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
   isSelected = false,
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const gbColor = barColor || '#3b82f6';
 
+  // Outside click listener for mobile & desktop to dismiss popover
+  useEffect(() => {
+    if (!showTooltip) return;
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowTooltip(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showTooltip]);
+
   return (
-    <div className="relative inline-flex items-center">
+    <div ref={containerRef} className="relative inline-flex items-center">
       <button
         type="button"
         onClick={() => {
@@ -175,7 +192,6 @@ export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
           else setShowTooltip((prev) => !prev);
         }}
         onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
         className={`px-2 sm:px-3 py-1 rounded-md text-[11px] sm:text-xs font-mono font-semibold border transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer shadow-xs tabular-nums whitespace-nowrap ${
           isSelected ? 'ring-2 ring-white/90 scale-[1.02]' : 'hover:scale-[1.01]'
         }`}
@@ -206,12 +222,18 @@ export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
         </span>
       </button>
 
+      {/* Mobile backdrop to easily dismiss with tap */}
+      {showTooltip && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 sm:hidden"
+          onClick={() => setShowTooltip(false)}
+        />
+      )}
+
       {/* Tooltip Popup / Popover (Drops downward and stays within mobile viewport bounds) */}
       {showTooltip && (
         <div
           role="tooltip"
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
           className="fixed sm:absolute left-2.5 right-2.5 sm:left-0 sm:right-auto sm:top-full mt-1.5 z-50 sm:w-76 p-2.5 bg-[#0F172A] border border-slate-700 rounded-lg shadow-2xl text-xs font-sans text-slate-200 pointer-events-auto"
         >
           <div className="flex items-center justify-between pb-1.5 border-b border-slate-700/80 mb-2">
@@ -219,9 +241,23 @@ export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
               <span className="text-blue-400">{metrics.gbId}</span>
               <span>Taar & Rapor Analizi</span>
             </span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 bg-blue-950/60 border border-blue-800 text-blue-300 rounded">
-              E{metrics.gaugeNumber} / {metrics.fabricWidthCm}cm
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-mono px-1.5 py-0.2 bg-blue-950/60 border border-blue-800 text-blue-300 rounded">
+                E{metrics.gaugeNumber} / {metrics.fabricWidthCm}cm
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowTooltip(false);
+                }}
+                className="p-1 text-slate-400 hover:text-white rounded bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
+                aria-label="Kapat"
+                title="Kapat"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           {metrics.hasWarning && (

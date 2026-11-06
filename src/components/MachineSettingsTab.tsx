@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { MachineProfile, GuideBarConfig, GuideBarId, SafetyConfig, PatternRow } from '../types';
-import { ShieldCheck, Check, Sliders } from 'lucide-react';
+import { ShieldCheck, Check, Sliders, Lock } from 'lucide-react';
 import { calculateGuideBarMetrics, GuideBarCalcBadge } from '../utils/fabricCalculator';
 
 interface MachineSettingsTabProps {
@@ -14,6 +14,7 @@ interface MachineSettingsTabProps {
   onChangeRows: (rows: PatternRow[]) => void;
   fabricWidthCm?: number;
   onChangeFabricWidth?: (widthCm: number) => void;
+  onNavigateToLogs?: () => void;
 }
 
 export const MachineSettingsTab: React.FC<MachineSettingsTabProps> = ({
@@ -27,6 +28,7 @@ export const MachineSettingsTab: React.FC<MachineSettingsTabProps> = ({
   onChangeRows,
   fabricWidthCm = 410,
   onChangeFabricWidth,
+  onNavigateToLogs,
 }) => {
   const [copySuccessMsg, setCopySuccessMsg] = useState<string | null>(null);
 
@@ -83,9 +85,20 @@ export const MachineSettingsTab: React.FC<MachineSettingsTabProps> = ({
       {/* 1. COMPACT SINGLE-BAR SAFETY LIMITS */}
       <section className="bg-[#111827] border border-slate-800 rounded-lg p-2.5 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-slate-800">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
             <h2 className="text-xs font-bold text-white">Güvenlik Sınırları</h2>
+            {onNavigateToLogs && (
+              <button
+                type="button"
+                onClick={onNavigateToLogs}
+                className="px-2 py-0.5 bg-blue-950/80 hover:bg-blue-900 border border-blue-700/80 text-blue-300 hover:text-white rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                title="Erişim ve Güvenlik Loglarını Aç"
+              >
+                <Lock className="w-3 h-3 text-blue-400 shrink-0" />
+                <span>Loglar</span>
+              </button>
+            )}
           </div>
 
           <button

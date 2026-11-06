@@ -1,6 +1,6 @@
 import React from 'react';
 import { SafetyConfig, PatternRow, GuideBarId } from '../types';
-import { ShieldCheck, X } from 'lucide-react';
+import { ShieldCheck, X, Lock } from 'lucide-react';
 
 interface SafetySettingsModalProps {
   isOpen: boolean;
@@ -9,6 +9,7 @@ interface SafetySettingsModalProps {
   onChangeSafety: (updated: SafetyConfig) => void;
   rows: PatternRow[];
   onChangeRows: (rows: PatternRow[]) => void;
+  onNavigateToLogs?: () => void;
 }
 
 export const SafetySettingsModal: React.FC<SafetySettingsModalProps> = ({
@@ -18,6 +19,7 @@ export const SafetySettingsModal: React.FC<SafetySettingsModalProps> = ({
   onChangeSafety,
   rows,
   onChangeRows,
+  onNavigateToLogs,
 }) => {
   if (!isOpen) return null;
 
@@ -56,9 +58,23 @@ export const SafetySettingsModal: React.FC<SafetySettingsModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3">
       <div className="bg-[#111827] border border-slate-700 rounded-lg w-full max-w-md p-4 shadow-2xl space-y-3 text-xs">
         <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
             <h3 className="text-sm font-bold text-white">Güvenlik Sınırları</h3>
+            {onNavigateToLogs && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onNavigateToLogs();
+                }}
+                className="px-2 py-0.5 bg-blue-950/80 hover:bg-blue-900 border border-blue-700/80 text-blue-300 hover:text-white rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                title="Erişim ve Güvenlik Loglarını Aç"
+              >
+                <Lock className="w-3 h-3 text-blue-400 shrink-0" />
+                <span>Loglar</span>
+              </button>
+            )}
           </div>
           <button
             type="button"

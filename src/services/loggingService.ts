@@ -14,6 +14,8 @@ export interface DeviceInfo {
   os: string;
   isMobile: boolean;
   userAgent: string;
+  screen?: string;
+  language?: string;
 }
 
 export interface LocationInfo {
@@ -27,8 +29,10 @@ export interface LocationInfo {
 
 export interface AccessLogItem {
   id: string;
-  type: 'visit' | 'share_created' | 'share_opened';
+  type: 'visit' | 'exit' | 'share_created' | 'share_opened';
   timestamp: string;
+  sessionId?: string;
+  duration?: string;
   patternId?: string;
   patternTitle?: string;
   shareToken?: string;
@@ -58,6 +62,29 @@ export interface ActiveUser {
   location: LocationInfo;
 }
 
+const CACHED_LOGS_KEY = 'warpknitt_cached_logs';
+const CACHED_LOC_KEY = 'warpknitt_cached_location';
+
+export function getCachedAccessLogs(): AccessLogItem[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CACHED_LOGS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+export function saveCachedAccessLogs(logs: AccessLogItem[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(CACHED_LOGS_KEY, JSON.stringify(logs.slice(0, 300)));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
 export function detectDeviceInfo(): DeviceInfo {
   if (typeof navigator === 'undefined') {
     return { browser: 'Bilinmiyor', os: 'Bilinmiyor', isMobile: false, userAgent: '' };
@@ -81,10 +108,22 @@ export function detectDeviceInfo(): DeviceInfo {
   else if (ua.indexOf('Android') > -1) os = 'Android';
   else if (ua.indexOf('iPhone') > -1 || ua.indexOf('iPad') > -1) os = 'iOS';
 
-  return { browser, os, isMobile, userAgent: ua };
+  const screen = typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : undefined;
+  const language = typeof navigator !== 'undefined' ? navigator.language : undefined;
+
+  return { browser, os, isMobile, userAgent: ua, screen, language };
 }
 
-let cachedLocation: LocationInfo | null = null;
+let cachedLocation: LocationInfo | null = (() => {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(CACHED_LOC_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+  }
+  return null;
+})();
+
 let locationFetchPromise: Promise<LocationInfo> | null = null;
 
 function getQuickFallbackLocation(): LocationInfo {
@@ -117,6 +156,11 @@ export async function fetchLocationInfo(): Promise<LocationInfo> {
             org: data.org || '',
             displayLocation: `${data.city || 'Konum'}, ${data.country_name || 'Türkiye'}`,
           };
+          if (typeof localStorage !== 'undefined') {
+            try {
+              localStorage.setItem(CACHED_LOC_KEY, JSON.stringify(cachedLocation));
+            } catch {}
+          }
           return cachedLocation;
         }
       }
@@ -164,6 +208,19 @@ export function getSessionId(): string {
   return `sess_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 }
 
+// Track session start time in memory/sessionStorage
+function getSessionStartTime(): number {
+  if (typeof sessionStorage !== 'undefined') {
+    let st = sessionStorage.getItem('warpknitt_session_start');
+    if (!st) {
+      st = Date.now().toString();
+      sessionStorage.setItem('warpknitt_session_start', st);
+    }
+    return parseInt(st, 10) || Date.now();
+  }
+  return Date.now();
+}
+
 // Heartbeat presence ping for Live Active Users in Firestore
 export async function sendPresencePing(): Promise<void> {
   const sessionId = getSessionId();
@@ -184,26 +241,20 @@ export async function sendPresencePing(): Promise<void> {
   }
 }
 
-// Start presence ping heartbeat loop (updates Firestore every 25 sec)
+// Start presence ping heartbeat loop (updates Firestore every 15 sec)
 export function startPresencePing(): () => void {
   sendPresencePing();
   const interval = setInterval(() => {
     sendPresencePing();
-  }, 25000);
+  }, 15000);
 
   return () => clearInterval(interval);
 }
 
-// Log initial site visit (throttled to once per session)
+// Log site entry/visit to Firestore and local cache
 export async function logSiteVisit(): Promise<void> {
-  if (typeof sessionStorage !== 'undefined') {
-    if (sessionStorage.getItem('warpknitt_visit_logged')) {
-      sendPresencePing();
-      return;
-    }
-    sessionStorage.setItem('warpknitt_visit_logged', 'true');
-  }
-
+  getSessionStartTime();
+  const sessionId = getSessionId();
   const device = detectDeviceInfo();
   const location = cachedLocation || (await fetchLocationInfo());
   const logId = `log-visit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -212,17 +263,57 @@ export async function logSiteVisit(): Promise<void> {
     id: logId,
     type: 'visit',
     timestamp: new Date().toISOString(),
+    sessionId,
     device,
     location,
   };
 
   try {
     await setDoc(doc(db, 'access_logs', logId), logItem);
+    // Append to cached logs immediately
+    const existing = getCachedAccessLogs();
+    saveCachedAccessLogs([logItem, ...existing.filter((l) => l.id !== logId)]);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `access_logs/${logId}`);
   }
 
   sendPresencePing();
+}
+
+// Log site exit when tab is closed or navigated away
+let hasLoggedExit = false;
+export async function logSiteExit(): Promise<void> {
+  if (hasLoggedExit) return;
+  hasLoggedExit = true;
+
+  const sessionId = getSessionId();
+  const startTime = getSessionStartTime();
+  const elapsedSecs = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+  const mins = Math.floor(elapsedSecs / 60);
+  const secs = elapsedSecs % 60;
+  const duration = mins > 0 ? `${mins} dk ${secs} sn` : `${secs} sn`;
+
+  const device = detectDeviceInfo();
+  const location = cachedLocation || getQuickFallbackLocation();
+  const logId = `log-exit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  const logItem: AccessLogItem = {
+    id: logId,
+    type: 'exit',
+    timestamp: new Date().toISOString(),
+    sessionId,
+    duration,
+    device,
+    location,
+  };
+
+  // Immediate delete of active user document on exit
+  try {
+    deleteDoc(doc(db, 'active_users', sessionId)).catch(() => {});
+    await setDoc(doc(db, 'access_logs', logId), logItem);
+  } catch (err) {
+    // Ignore teardown errors
+  }
 }
 
 /**
@@ -259,6 +350,7 @@ export function createSharedPatternLink(pattern: PatternData): { url: string; st
         patternId: pattern.id,
         patternTitle: pattern.title,
         shareToken: stoken,
+        sessionId: getSessionId(),
         device,
         location,
       };
@@ -295,6 +387,7 @@ export async function trackSharedLinkOpened(stoken: string, patternId: string, p
     patternId,
     patternTitle: shareMeta?.patternTitle || patternTitle || 'Paylaşılan Desen',
     shareToken: stoken,
+    sessionId: getSessionId(),
     device,
     location,
     shareOrigin: shareMeta
@@ -309,10 +402,14 @@ export async function trackSharedLinkOpened(stoken: string, patternId: string, p
 
   try {
     await setDoc(doc(db, 'access_logs', logId), logItem);
+    // Append to cached logs immediately
+    const existing = getCachedAccessLogs();
+    saveCachedAccessLogs([logItem, ...existing.filter((l) => l.id !== logId)]);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `access_logs/${logId}`);
   }
 
+  sendPresencePing();
   return shareMeta;
 }
 
@@ -327,6 +424,7 @@ export function subscribeToAccessLogs(onUpdate: (logs: AccessLogItem[]) => void)
         logs.push(d.data() as AccessLogItem);
       });
       logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      saveCachedAccessLogs(logs);
       onUpdate(logs);
     },
     (error) => {
@@ -336,13 +434,13 @@ export function subscribeToAccessLogs(onUpdate: (logs: AccessLogItem[]) => void)
   return unsub;
 }
 
-// Subscribe to Live Active Users (pinged within last 3 minutes)
+// Subscribe to Live Active Users (pinged within last 90 seconds)
 export function subscribeToActiveUsers(onUpdate: (users: ActiveUser[]) => void): () => void {
   const unsub = onSnapshot(
     collection(db, 'active_users'),
     (snap) => {
       const now = Date.now();
-      const activeWindowMs = 3 * 60 * 1000; // 3 minutes window
+      const activeWindowMs = 90 * 1000; // 90 seconds window for live online
       const activeUsers: ActiveUser[] = [];
 
       snap.forEach((docSnap) => {
@@ -368,6 +466,8 @@ export function subscribeToActiveUsers(onUpdate: (users: ActiveUser[]) => void):
 export async function deleteAccessLog(logId: string): Promise<void> {
   try {
     await deleteDoc(doc(db, 'access_logs', logId));
+    const cached = getCachedAccessLogs();
+    saveCachedAccessLogs(cached.filter((l) => l.id !== logId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `access_logs/${logId}`);
   }
