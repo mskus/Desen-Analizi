@@ -1477,20 +1477,20 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   const filledNeedlesCount = currentThreading.filter(Boolean).length;
 
   return (
-    <div ref={simWrapperRef} className="w-full max-w-none px-2 sm:px-3 py-2.5 space-y-2.5">
+    <div ref={simWrapperRef} className="w-full max-w-none px-1.5 sm:px-3 py-1.5 sm:py-2.5 space-y-2 sm:space-y-2.5">
       {/* Copy Notification Banner */}
       {copyFeedback && (
-        <div className="bg-emerald-950/90 border border-emerald-700 text-emerald-100 px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-2">
+        <div className="bg-emerald-950/90 border border-emerald-700 text-emerald-100 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-semibold flex items-center gap-2">
           <Check className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{copyFeedback}</span>
         </div>
       )}
 
       {/* SECTION 1: COMPACT GUIDE BAR & THREADING TOOLBAR */}
-      <section className="bg-[#111827] border border-slate-800 rounded-xl p-3 space-y-3">
+      <section className="bg-[#111827] border border-slate-800 rounded-xl p-2 sm:p-3 space-y-2 sm:space-y-3">
         {/* Single-Row Threading Controls: Şablon, İğne Sayısı (+/- Butonlu), Hızlı Dizim Çipleri & Kurallar, Kopyala */}
-        <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 text-xs overflow-visible">
-          <div className="flex flex-wrap items-center gap-2.5">
+        <div className="bg-[#0B0F17] p-1.5 sm:p-2.5 rounded-lg border border-slate-800 text-xs overflow-visible">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5">
             {/* Şablonlar Dropdown Menu with Icon */}
             <div className="flex items-center gap-1.5 bg-[#111827] px-2 py-1 rounded border border-slate-700" title="Dizilim Şablonları">
               <LayoutTemplate className="w-4 h-4 text-blue-400 shrink-0" />
@@ -1501,7 +1501,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                     handleApplyPreset(e.target.value as any);
                   }
                 }}
-                className="bg-[#0B0F17] border border-slate-700 text-slate-200 text-xs rounded px-2 py-0.5 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
+                className="bg-[#0B0F17] border border-slate-700 text-slate-200 text-xs rounded px-1.5 sm:px-2 py-0.5 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
               >
                 <option value="" disabled>Şablon ▾</option>
                 <option value="full">Tam Dolu</option>
@@ -1597,7 +1597,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
             <span className="text-slate-700 hidden sm:inline">|</span>
 
             {/* Practical Fast Fill (Hızlı Pratik Dizim) */}
-            <div className="flex items-center gap-1.5" title="Hızlı Pratik Dizim">
+            <div className="flex flex-wrap items-center gap-1.5" title="Hızlı Pratik Dizim">
               <Wand2 className="w-4 h-4 text-purple-400 shrink-0" />
 
               {/* Start Mode Choice: Green dot (Dolu) / Red dot (Boş) */}
@@ -1636,7 +1636,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                   max={96}
                   value={manualInCount}
                   onChange={(e) => setManualInCount(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                  className="w-10 bg-[#111827] border border-emerald-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-emerald-400 focus:outline-none focus:border-emerald-500 tabular-nums text-xs"
+                  className="w-9 sm:w-10 bg-[#111827] border border-emerald-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-emerald-400 focus:outline-none focus:border-emerald-500 tabular-nums text-xs"
                   title="Dolu İğne Sayısı"
                 />
                 <span className="text-slate-500 font-bold">/</span>
@@ -1646,7 +1646,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                   max={96}
                   value={manualOutCount}
                   onChange={(e) => setManualOutCount(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                  className="w-10 bg-[#111827] border border-rose-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-rose-400 focus:outline-none focus:border-rose-500 tabular-nums text-xs"
+                  className="w-9 sm:w-10 bg-[#111827] border border-rose-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-rose-400 focus:outline-none focus:border-rose-500 tabular-nums text-xs"
                   title="Boş İğne Sayısı"
                 />
                 <button
@@ -1659,8 +1659,8 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                 </button>
               </div>
 
-              {/* Quick Preset Pattern Chips */}
-              <div className="hidden md:flex items-center gap-1 ml-1">
+              {/* Quick Preset Pattern Chips (Available on both Mobile & Desktop) */}
+              <div className="flex flex-wrap items-center gap-1 sm:ml-1">
                 {[
                   { inC: 1, outC: 1, label: '1/1' },
                   { inC: 2, outC: 2, label: '2/2' },
@@ -1700,13 +1700,13 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               </div>
 
               {/* Custom Rule Input */}
-              <div className="flex items-center gap-1 ml-1">
+              <div className="flex items-center gap-1 sm:ml-1">
                 <input
                   type="text"
                   value={customRuleText}
                   onChange={(e) => setCustomRuleText(e.target.value)}
                   placeholder="4-2-1"
-                  className="w-16 bg-[#111827] border border-slate-700 rounded px-1.5 py-0.5 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                  className="w-14 sm:w-16 bg-[#111827] border border-slate-700 rounded px-1.5 py-0.5 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
                   title="Özel Kural"
                 />
                 <button
@@ -1731,7 +1731,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                   if (!e.target.value) return;
                   handleCopyThreadingToTarget(e.target.value as any);
                 }}
-                className="bg-[#0B0F17] border border-slate-700 text-slate-200 text-xs rounded px-2 py-0.5 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
+                className="bg-[#0B0F17] border border-slate-700 text-slate-200 text-xs rounded px-1.5 sm:px-2 py-0.5 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
               >
                 <option value="" disabled>
                   {editingGbId} → Hedef
@@ -1751,10 +1751,10 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
           </div>
         </div>
 
-        {/* Bottom Row: Active Guide Bar Report Badges + Needle Grid (30 Needles Per Row) */}
+        {/* Bottom Row: Active Guide Bar Report Badges + Needle Grid (30 Needles Per Row on Desktop, Responsive on Mobile) */}
         <div className="space-y-2">
           {/* Active Guide Bar Analysis Badges Row */}
-          <div className="flex flex-wrap items-center gap-1.5 text-xs pb-1 border-b border-slate-800/80 overflow-visible">
+          <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 text-xs pb-1 border-b border-slate-800/80 overflow-visible">
             {activeBars.map((gbId) => {
               const metrics = guideBarCalculations[gbId];
               if (!metrics) return null;
@@ -1778,8 +1778,8 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
             })}
           </div>
 
-          {/* Compact 30-Needle Per Row Grid (Numbers only, no 'İ' prefix, green/red counts) */}
-          <div className="space-y-1 p-1.5 bg-[#0B0F17] rounded-lg border border-slate-800 select-none">
+          {/* Compact 30-Needle Per Row Grid (10 cols on Mobile, 15 on Tablet, 30 on Desktop) */}
+          <div className="space-y-1 p-1 sm:p-1.5 bg-[#0B0F17] rounded-lg border border-slate-800 select-none">
             {Array.from({ length: Math.ceil(needleCols / 30) }).map((_, rowIndex) => {
               const rowNeedleIndices = Array.from(
                 { length: Math.min(30, needleCols - rowIndex * 30) },
@@ -1791,10 +1791,9 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               const rowEmpty = rowNeedleIndices.length - rowFilled;
 
               return (
-                <div key={rowIndex} className="flex items-center gap-1.5">
+                <div key={rowIndex} className="flex items-center gap-1 sm:gap-1.5">
                   <div
-                    className="grid grid-cols-15 sm:grid-cols-30 gap-0.5 flex-1 min-w-0"
-                    style={{ gridTemplateColumns: 'repeat(30, minmax(0, 1fr))' }}
+                    className="grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-[repeat(30,minmax(0,1fr))] gap-0.5 flex-1 min-w-0"
                     onTouchMove={(e) => {
                       if (!isMouseDownRef.current || e.touches.length === 0) return;
                       const touch = e.touches[0];
@@ -1855,7 +1854,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                     })}
                   </div>
                   <div
-                    className="h-6.5 px-2 flex items-center justify-center gap-1 rounded border border-slate-800 bg-[#111827] text-xs font-mono font-bold whitespace-nowrap shrink-0 tabular-nums shadow-xs"
+                    className="h-6.5 px-1.5 sm:px-2 flex items-center justify-center gap-0.5 sm:gap-1 rounded border border-slate-800 bg-[#111827] text-[11px] sm:text-xs font-mono font-bold whitespace-nowrap shrink-0 tabular-nums shadow-xs self-start lg:self-center"
                     title={`Satır ${rowIndex + 1}: ${rowFilled} Dolu / ${rowEmpty} Boş`}
                   >
                     <span className="text-emerald-400">{rowFilled}</span>
@@ -1870,56 +1869,56 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       </section>
 
       {/* SECTION 2: SIMULATION VIEW & CONTROLS */}
-      <section className="bg-[#111827] border border-slate-800 rounded-xl p-3">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+      <section className="bg-[#111827] border border-slate-800 rounded-xl p-2 sm:p-3">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2 sm:gap-2.5">
           {/* Left: View Mode Selector with Icons */}
-          <div className="flex flex-wrap items-center gap-2" title="Görünüm Modu">
-            <Eye className="w-4 h-4 text-blue-400 shrink-0" />
-            <div className="flex items-center bg-[#0B0F17] p-1 rounded-lg border border-slate-800">
+          <div className="flex items-center justify-between sm:justify-start gap-2" title="Görünüm Modu">
+            <Eye className="w-4 h-4 text-blue-400 shrink-0 hidden sm:inline" />
+            <div className="grid grid-cols-3 sm:flex items-center bg-[#0B0F17] p-1 rounded-lg border border-slate-800 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setDisplayMode('fabric')}
-                className={`px-3 py-1 text-xs font-semibold rounded transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2 sm:px-3 py-1 text-xs font-semibold rounded transition-colors whitespace-nowrap cursor-pointer flex items-center justify-center gap-1.5 ${
                   displayMode === 'fabric'
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <LayoutTemplate className="w-3.5 h-3.5" />
+                <LayoutTemplate className="w-3.5 h-3.5 shrink-0" />
                 <span>Kumaş</span>
               </button>
               <button
                 type="button"
                 onClick={() => setDisplayMode('technical')}
-                className={`px-3 py-1 text-xs font-semibold rounded transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2 sm:px-3 py-1 text-xs font-semibold rounded transition-colors whitespace-nowrap cursor-pointer flex items-center justify-center gap-1.5 ${
                   displayMode === 'technical'
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <Grid3X3 className="w-3.5 h-3.5" />
+                <Grid3X3 className="w-3.5 h-3.5 shrink-0" />
                 <span>Teknik</span>
               </button>
               <button
                 type="button"
                 onClick={() => setDisplayMode('dual')}
-                className={`px-3 py-1 text-xs font-semibold rounded transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2 sm:px-3 py-1 text-xs font-semibold rounded transition-colors whitespace-nowrap cursor-pointer flex items-center justify-center gap-1.5 ${
                   displayMode === 'dual'
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <Layers className="w-3.5 h-3.5" />
+                <Layers className="w-3.5 h-3.5 shrink-0" />
                 <span>İkili</span>
               </button>
             </div>
           </div>
 
-          {/* Center/Right: Active Guide Bar Badge (Without 'Aktif Tarak:' text) + Repeats & Zoom Controls */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* Center/Right: Active Guide Bar Badge + Repeats & Zoom Controls */}
+          <div className="flex flex-wrap items-center justify-between sm:justify-start gap-1.5 sm:gap-2.5">
             {/* Active GB Badge without 'Aktif Tarak:' text label */}
             <div
-              className="flex items-center gap-1.5 bg-[#0B0F17] px-2.5 py-1 rounded-lg border border-slate-800 text-xs font-mono"
+              className="flex items-center gap-1.5 bg-[#0B0F17] px-2 sm:px-2.5 py-1 rounded-lg border border-slate-800 text-xs font-mono"
               title="Aktif Tarak Dolu/Boş Oranı"
             >
               <strong className="font-bold text-xs px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700" style={{ color: currentGb?.color || '#3b82f6' }}>
@@ -1933,14 +1932,14 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
             </div>
 
             {/* Horizontal Repeat (Yatay) with Icon */}
-            <div className="flex items-center gap-1 bg-[#0B0F17] px-2 py-1 rounded-lg border border-slate-800 text-xs" title="Yatay Tekrar">
-              <ArrowRightLeft className="w-4 h-4 text-slate-400 shrink-0 mr-0.5" />
+            <div className="flex items-center gap-0.5 sm:gap-1 bg-[#0B0F17] px-1.5 sm:px-2 py-1 rounded-lg border border-slate-800 text-xs" title="Yatay Tekrar">
+              <ArrowRightLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 shrink-0 mr-0.5" />
               {[1, 2, 3, 4].map((rep) => (
                 <button
                   key={rep}
                   type="button"
                   onClick={() => setRepeatX(rep)}
-                  className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors cursor-pointer tabular-nums ${
+                  className={`px-1.5 sm:px-2 py-0.5 rounded text-[11px] sm:text-xs font-semibold transition-colors cursor-pointer tabular-nums ${
                     repeatX === rep
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-400 hover:text-white'
@@ -1952,14 +1951,14 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
             </div>
 
             {/* Vertical Repeat (Dikey) with Icon */}
-            <div className="flex items-center gap-1 bg-[#0B0F17] px-2 py-1 rounded-lg border border-slate-800 text-xs" title="Dikey Tekrar">
-              <ArrowUpDown className="w-4 h-4 text-slate-400 shrink-0 mr-0.5" />
+            <div className="flex items-center gap-0.5 sm:gap-1 bg-[#0B0F17] px-1.5 sm:px-2 py-1 rounded-lg border border-slate-800 text-xs" title="Dikey Tekrar">
+              <ArrowUpDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 shrink-0 mr-0.5" />
               {[1, 2, 3, 4].map((rep) => (
                 <button
                   key={rep}
                   type="button"
                   onClick={() => setRepeatY(rep)}
-                  className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors cursor-pointer tabular-nums ${
+                  className={`px-1.5 sm:px-2 py-0.5 rounded text-[11px] sm:text-xs font-semibold transition-colors cursor-pointer tabular-nums ${
                     repeatY === rep
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-400 hover:text-white'
@@ -1986,7 +1985,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               >
                 <ZoomOut className="w-4 h-4" />
               </button>
-              <span className="text-xs font-mono font-bold px-1.5 text-slate-200 min-w-[42px] text-center tabular-nums">
+              <span className="text-xs font-mono font-bold px-1 text-slate-200 min-w-[38px] sm:min-w-[42px] text-center tabular-nums">
                 %{Math.round(zoom * 100)}
               </span>
               <button
@@ -2037,7 +2036,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       </section>
 
       {/* SECTION 3: SIMULATION CANVASES */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 sm:gap-3">
         {/* Technical Diagram */}
         {(displayMode === 'dual' || displayMode === 'technical') && (
           <div
@@ -2045,11 +2044,11 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               displayMode === 'dual' ? 'lg:col-span-6' : 'lg:col-span-12'
             }`}
           >
-            <div className="px-3.5 py-2 bg-[#0F172A] border-b border-slate-800 flex items-center justify-between">
+            <div className="px-2.5 sm:px-3.5 py-2 bg-[#0F172A] border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold text-xs text-white">
-                Teknik Şema ({totalCourses} Kurs · {totalNeedles} İğne)
+                Teknik Şema ({totalCourses}K · {totalNeedles}İ)
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <button
                   type="button"
                   onClick={() =>
@@ -2058,7 +2057,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                       `${pattern.title}_tarak_semasi.png`
                     )
                   }
-                  className="flex items-center gap-1 px-2.5 py-1 bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors cursor-pointer"
+                  className="flex items-center gap-1 px-2 sm:px-2.5 py-1 bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5 text-blue-400" />
                   <span>PNG İndir</span>
@@ -2071,11 +2070,12 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                       `${pattern.title}_tarak_semasi.png`
                     )
                   }
-                  className="flex items-center gap-1 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
+                  className="flex items-center gap-1 px-2 sm:px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
                   title="WhatsApp ile Paylaş"
                 >
                   <Share2 className="w-3.5 h-3.5 text-white" />
-                  <span>WhatsApp Paylaş</span>
+                  <span className="hidden xs:inline">WhatsApp</span>
+                  <span className="xs:hidden">Paylaş</span>
                 </button>
               </div>
             </div>
@@ -2130,15 +2130,15 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               displayMode === 'dual' ? 'lg:col-span-6' : 'lg:col-span-12'
             }`}
           >
-            <div className="px-3.5 py-2 bg-[#0F172A] border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="px-2.5 sm:px-3.5 py-2 bg-[#0F172A] border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
               {/* Left: Title + Checkboxes */}
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <span className="font-semibold text-xs text-white whitespace-nowrap">
                   Kumaş Simülasyonu ({totalCourses}K · {totalNeedles}İ)
                 </span>
 
-                <div className="flex flex-wrap items-center gap-3 pl-2.5 border-l border-slate-700/80">
-                  <label className="flex items-center gap-1.5 cursor-pointer text-slate-200 font-medium text-xs">
+                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 sm:pl-2.5 sm:border-l border-slate-700/80">
+                  <label className="flex items-center gap-1 sm:gap-1.5 cursor-pointer text-slate-200 font-medium text-xs">
                     <input
                       type="checkbox"
                       checked={showPoreMesh}
@@ -2148,7 +2148,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                     <span>Gözenek</span>
                   </label>
 
-                  <label className="flex items-center gap-1.5 cursor-pointer text-slate-200 font-medium text-xs">
+                  <label className="flex items-center gap-1 sm:gap-1.5 cursor-pointer text-slate-200 font-medium text-xs">
                     <input
                       type="checkbox"
                       checked={showStepNumbers}
@@ -2158,7 +2158,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                     <span>Δ Adım</span>
                   </label>
 
-                  <label className="flex items-center gap-1.5 cursor-pointer text-slate-200 font-medium text-xs">
+                  <label className="flex items-center gap-1 sm:gap-1.5 cursor-pointer text-slate-200 font-medium text-xs">
                     <input
                       type="checkbox"
                       checked={showNeedleDots}
@@ -2171,10 +2171,10 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               </div>
 
               {/* Right: Visibility Buttons + Download/Share Buttons */}
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
                 {/* Guide Bar Layer Visibility Buttons */}
-                <div className="flex items-center gap-1.5 text-xs pr-2.5 border-r border-slate-700/80">
-                  <span className="text-slate-400 font-semibold mr-0.5">Görünürlük:</span>
+                <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 text-xs sm:pr-2.5 sm:border-r border-slate-700/80">
+                  <span className="text-slate-400 font-semibold mr-0.5 hidden sm:inline">Görünürlük:</span>
                   {activeBars.map((id) => {
                     const isVis = visibleBars[id] !== false;
                     const gb = currentGuideBars[id];
@@ -2188,7 +2188,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                             [id]: !isVis,
                           }))
                         }
-                        className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors border cursor-pointer ${
+                        className={`px-1.5 sm:px-2 py-0.5 rounded text-[11px] sm:text-xs font-semibold transition-colors border cursor-pointer ${
                           isVis
                             ? 'text-white border-transparent'
                             : 'bg-[#0B0F17] text-slate-500 border-slate-800 line-through'
@@ -2201,33 +2201,35 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                   })}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    downloadSimulationImage(
-                      fabricCanvasRef.current,
-                      `${pattern.title}_kumas_simulasyonu.png`
-                    )
-                  }
-                  className="flex items-center gap-1 px-2.5 py-1 bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5 text-blue-400" />
-                  <span>PNG İndir</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    shareSimulationImage(
-                      fabricCanvasRef.current,
-                      `${pattern.title}_kumas_simulasyonu.png`
-                    )
-                  }
-                  className="flex items-center gap-1 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
-                  title="WhatsApp ile Paylaş"
-                >
-                  <Share2 className="w-3.5 h-3.5 text-white" />
-                  <span>WhatsApp Paylaş</span>
-                </button>
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadSimulationImage(
+                        fabricCanvasRef.current,
+                        `${pattern.title}_kumas_simulasyonu.png`
+                      )
+                    }
+                    className="flex items-center gap-1 px-2 sm:px-2.5 py-1 bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5 text-blue-400" />
+                    <span>PNG İndir</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      shareSimulationImage(
+                        fabricCanvasRef.current,
+                        `${pattern.title}_kumas_simulasyonu.png`
+                      )
+                    }
+                    className="flex items-center gap-1 px-2 sm:px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
+                    title="WhatsApp ile Paylaş"
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-white" />
+                    <span>Paylaş</span>
+                  </button>
+                </div>
               </div>
             </div>
 

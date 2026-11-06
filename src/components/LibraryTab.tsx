@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { PatternData, GuideBarId } from '../types';
-import { Search, CheckCircle2, ArrowRight, BookmarkPlus, Trash2, UserCheck } from 'lucide-react';
+import { Search, CheckCircle2, ArrowRight, BookmarkPlus, Trash2, UserCheck, Share2, Copy, Check } from 'lucide-react';
 import { PatternThumbnail } from './PatternThumbnail';
+import { createSharedPatternLink } from '../services/loggingService';
 
 interface LibraryTabProps {
   currentPatternId: string;
@@ -22,15 +23,45 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Tümü');
+  const [shareToast, setShareToast] = useState<{ msg: string; link?: string } | null>(null);
 
   const categories = [
     'Tümü',
     'Bukle & Havlı',
-    'Peluş / Kadife',
+    'Pelüş / Kadife',
     'Rölyef & Jakar',
     'Otomotiv Halısı',
     'Özel',
   ];
+
+  const handleSharePattern = async (pat: PatternData) => {
+    try {
+      const { url } = await createSharedPatternLink(pat);
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+      }
+      setShareToast({
+        msg: `"${pat.title}" paylaşım linki kopyalandı!`,
+        link: url,
+      });
+      setTimeout(() => setShareToast(null), 5000);
+
+      // Web Share API native share popup if mobile
+      if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ url })) {
+        try {
+          await navigator.share({
+            title: pat.title,
+            text: `Warp Knitting Tekstil Deseni: ${pat.title}`,
+            url,
+          });
+        } catch (err) {
+          // User closed share modal
+        }
+      }
+    } catch (err) {
+      console.error('Share link generation failed', err);
+    }
+  };
 
   const filteredPatterns = allPatterns.filter((pat) => {
     const isUserPattern = pat.id.startsWith('user-pat-') || Boolean(pat.authorId);
@@ -45,17 +76,39 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   });
 
   return (
-    <div className="w-full px-2 py-1.5 space-y-2">
+    <div className="w-full px-1.5 sm:px-2 py-1.5 space-y-2">
+      {/* Toast Notification */}
+      {shareToast && (
+        <div className="bg-emerald-950/95 border border-emerald-700 text-emerald-100 px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-between gap-2 fixed top-14 right-4 z-50 shadow-2xl max-w-sm">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="truncate">{shareToast.msg}</span>
+          </div>
+          {shareToast.link && (
+            <button
+              type="button"
+              onClick={() => {
+                if (navigator.clipboard) navigator.clipboard.writeText(shareToast.link!);
+              }}
+              className="p-1 hover:bg-emerald-900 rounded text-emerald-300 hover:text-white shrink-0 cursor-pointer"
+              title="Linki Tekrar Kopyala"
+            >
+              <Copy className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Merged Single-Row Filter, Search & Save Toolbar */}
-      <section className="bg-[#111827] border border-slate-800 rounded-lg p-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs font-bold text-white mr-1">Kütüphane:</span>
+      <section className="bg-[#111827] border border-slate-800 rounded-lg p-2 flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
+          <span className="text-xs font-bold text-white mr-1 hidden sm:inline">Kütüphane:</span>
           {categories.map((cat) => (
             <button
               key={cat}
               type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+              className={`px-2 sm:px-2.5 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                 selectedCategory === cat
                   ? 'bg-blue-600 text-white'
                   : 'bg-[#0B0F17] text-slate-300 hover:text-white border border-slate-800'
@@ -66,8 +119,8 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative w-48 sm:w-64">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-64">
             <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
             <input
               type="text"
@@ -164,11 +217,22 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                   </span>
 
                   <div className="flex items-center gap-1">
+                    {/* Share Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleSharePattern(pat)}
+                      className="p-1.5 text-slate-300 hover:text-white bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 rounded transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-semibold"
+                      title="Deseni Paylaş"
+                    >
+                      <Share2 className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Paylaş</span>
+                    </button>
+
                     {isOwner && onDeletePattern && (
                       <button
                         type="button"
                         onClick={() => onDeletePattern(pat.id)}
-                        className="p-1 text-slate-400 hover:text-rose-400 bg-[#0B0F17] border border-slate-800 rounded transition-colors cursor-pointer"
+                        className="p-1.5 text-slate-400 hover:text-rose-400 bg-[#0B0F17] border border-slate-800 rounded transition-colors cursor-pointer"
                         title="Deseni Sil"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -178,7 +242,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                     <button
                       type="button"
                       onClick={() => onSelectPattern(pat)}
-                      className={`px-2 py-0.8 rounded text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap ${
+                      className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap ${
                         isActive
                           ? 'bg-emerald-600 text-white'
                           : 'bg-blue-600 hover:bg-blue-500 text-white'

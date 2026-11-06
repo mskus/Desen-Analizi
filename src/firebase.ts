@@ -1,12 +1,18 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with custom Database ID (MANDATORY in AI Studio)
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
+// Initialize Firestore with custom Database ID (MANDATORY in AI Studio) and auto long-polling for iframe stability
+export const db = initializeFirestore(
+  app,
+  {
+    experimentalAutoDetectLongPolling: true,
+  },
+  firebaseConfig.firestoreDatabaseId
+);
 
 // Firestore Error Handling Standard as per Firebase Skill
 export enum OperationType {
@@ -52,14 +58,19 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   console.warn('Firestore Operation Notice: ', JSON.stringify(errInfo));
 }
 
-// Test Connection at initial boot as required by skill
+// Test Connection at initial boot with fallback to prevent backend reachability timeout errors
 export async function testConnection() {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    // Race with a 3-second timeout so app boot is never blocked or throws network warnings
+    const connectionCheck = getDocFromServer(doc(db, 'test', 'connection'));
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Connection check timeout')), 3000)
+    );
+    await Promise.race([connectionCheck, timeout]);
   } catch (error) {
-    // Graceful offline fallback
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.info('Firestore offline modda hazır.');
+    // Quietly handle connection delay / offline state
+    if (error instanceof Error && (error.message.includes('client is offline') || error.message.includes('timeout') || error.message.includes('reach Cloud Firestore'))) {
+      console.info('Firestore çevrimdışı/beklemede çalışıyor.');
     }
   }
 }

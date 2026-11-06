@@ -1,8 +1,30 @@
+# Build and Dependencies
 node_modules/
 build/
 dist/
 coverage/
 .DS_Store
 *.log
-.env*
+
+# Sensitive Environment Files & API Keys
+.env
+.env.*
 !.env.example
+*.env
+*.pem
+*.key
+*.secret
+*.p12
+*.json.key
+
+# Cloud & Service Configurations with API Keys
+firebase-applet-config.json
+serviceAccountKey.json
+google-services.json
+GoogleService-Info.plist
+
+# Local IDE & OS files
+.idea/
+.vscode/
+*.suo
+*.user

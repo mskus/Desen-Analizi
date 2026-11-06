@@ -11,13 +11,15 @@ const thumbnailCache = new Map<string, string>();
 
 export const PatternThumbnail: React.FC<PatternThumbnailProps> = ({ pattern, className = '' }) => {
   const thumbnailSrc = useMemo(() => {
-    if (pattern.thumbnail && pattern.thumbnail.startsWith('data:image')) {
-      return pattern.thumbnail;
-    }
-    const cacheKey = `${pattern.id}_${pattern.updatedAt || pattern.createdAt || ''}`;
+    // Generate cache key from pattern structure to ensure accurate rendering
+    const rowsHash = pattern.rows ? pattern.rows.map(r => `${r.GB1},${r.GB2},${r.GB3},${r.GB4},${r.GB5},${r.GB6}`).join('|') : '';
+    const gbHash = pattern.guideBars ? Object.values(pattern.guideBars).map(g => `${g.id}:${g.active}:${g.color}`).join(';') : '';
+    const cacheKey = `${pattern.id}_${rowsHash}_${gbHash}`;
+
     if (thumbnailCache.has(cacheKey)) {
       return thumbnailCache.get(cacheKey)!;
     }
+
     const generated = generatePatternThumbnail(pattern);
     if (generated) {
       thumbnailCache.set(cacheKey, generated);

@@ -1173,7 +1173,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   };
 
   return (
-    <div className="w-full px-2 py-1.5 space-y-1.5">
+    <div className="w-full px-1.5 sm:px-2 py-1.5 space-y-1.5">
       {/* Feedback Toast */}
       {actionMsg && (
         <div className="bg-emerald-950/90 border border-emerald-700 text-emerald-100 px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 sticky top-12 z-40">
@@ -1192,12 +1192,12 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
         }}
         className="bg-[#111827] border border-slate-800 rounded-lg overflow-hidden relative"
       >
-        {/* Unified Single-Row Canvas & Operator Toolbar - Center-Aligned Buttons */}
-        <div className="bg-[#0F172A] px-2 py-1.5 border-b border-slate-800 flex flex-wrap items-center justify-center gap-2 text-xs">
+        {/* Unified Single-Row Canvas & Operator Toolbar */}
+        <div className="bg-[#0F172A] px-1.5 sm:px-2 py-1.5 border-b border-slate-800 flex flex-wrap items-center justify-between sm:justify-center gap-1.5 sm:gap-2 text-xs">
           {/* Left: Guide Bar Selection + Independent Needle Count (Max 96) */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <div className="flex items-center gap-1 bg-[#0B0F17] p-0.5 rounded border border-slate-800">
-              <span className="text-[11px] font-semibold text-slate-400 px-1">Tarak:</span>
+          <div className="flex flex-wrap items-center justify-between sm:justify-start gap-1.5 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-1 bg-[#0B0F17] p-0.5 rounded border border-slate-800">
+              <span className="text-[11px] font-semibold text-slate-400 px-1 hidden xs:inline">Tarak:</span>
               {activeBars.map((gbId) => {
                 const gb = pattern.guideBars[gbId];
                 const isSelected = activeGbId === gbId;
@@ -1206,7 +1206,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                     key={gbId}
                     type="button"
                     onClick={() => setActiveGbId(gbId)}
-                    className={`px-2 py-0.5 rounded text-xs font-bold border transition-colors cursor-pointer ${
+                    className={`px-1.5 sm:px-2 py-0.5 rounded text-xs font-bold border transition-colors cursor-pointer ${
                       isSelected
                         ? 'text-white border-transparent'
                         : 'bg-[#111827] text-slate-400 border-slate-800 hover:text-white'
@@ -1218,7 +1218,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                 );
               })}
               {guideBarCalculations[activeGbId] && (
-                <div className="ml-1">
+                <div className="ml-0.5 sm:ml-1">
                   <GuideBarCalcBadge metrics={guideBarCalculations[activeGbId]!} compact={true} />
                 </div>
               )}
@@ -1268,7 +1268,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className="w-10 bg-[#111827] border border-slate-700 rounded px-1 py-0.5 text-center font-mono font-bold text-blue-400 focus:outline-none focus:border-blue-500 tabular-nums text-xs"
+                className="w-9 sm:w-10 bg-[#111827] border border-slate-700 rounded px-1 py-0.5 text-center font-mono font-bold text-blue-400 focus:outline-none focus:border-blue-500 tabular-nums text-xs"
                 title="Şema İğne Sayısı"
               />
               <button
@@ -1324,7 +1324,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
             <button
               type="button"
               onClick={duplicatePattern}
-              className="px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+              className="px-1.5 sm:px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
               title="Deseni 2x Çoğalt"
             >
               <CopyPlus className="w-3.5 h-3.5 text-blue-400" />
@@ -1334,21 +1334,21 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
             <button
               type="button"
               onClick={mirrorPattern}
-              className="px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+              className="px-1.5 sm:px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
               title="Simetrik Aynala"
             >
               <FlipVertical className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Aynala</span>
+              <span className="hidden xs:inline">Aynala</span>
             </button>
 
             <button
               type="button"
               onClick={handleGenerateRandomPattern}
-              className="px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+              className="px-1.5 sm:px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 text-slate-200 rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
               title="Otomatik Desen Üret"
             >
               <Dices className="w-3.5 h-3.5 text-blue-400" />
-              <span>Üret</span>
+              <span className="hidden xs:inline">Üret</span>
             </button>
 
             <button
@@ -1394,7 +1394,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                 const delta = e.deltaY < 0 ? 0.05 : -0.05;
                 setZoom((z) => Math.max(0.35, Math.min(2.2, Math.round((z + delta) * 100) / 100)));
               }}
-              className="flex items-center gap-1 bg-[#0B0F17] p-1 rounded-lg border border-slate-800"
+              className="flex items-center gap-0.5 sm:gap-1 bg-[#0B0F17] p-0.5 sm:p-1 rounded-lg border border-slate-800"
               title="Zoom (Farenin orta tekerleği ile hızlı yakınlaştır/uzaklaştır)"
             >
               <button
@@ -1406,9 +1406,9 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                 className="text-slate-300 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
                 title="Uzaklaştır"
               >
-                <ZoomOut className="w-4 h-4" />
+                <ZoomOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
-              <span className="text-xs font-mono font-bold text-slate-200 min-w-[40px] text-center tabular-nums">
+              <span className="text-[11px] sm:text-xs font-mono font-bold text-slate-200 min-w-[36px] sm:min-w-[40px] text-center tabular-nums">
                 %{Math.round(zoom * 100)}
               </span>
               <button
@@ -1420,7 +1420,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                 className="text-slate-300 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
                 title="Yakınlaştır"
               >
-                <ZoomIn className="w-4 h-4" />
+                <ZoomIn className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
 
               <button
@@ -1538,9 +1538,10 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
           <div
             style={{
               position: 'fixed',
-              left: `${previewWindow.x}px`,
-              top: `${previewWindow.y}px`,
+              left: `${Math.max(8, Math.min(previewWindow.x, (typeof window !== 'undefined' ? window.innerWidth : 400) - Math.min(previewWindow.width, 300)))}px`,
+              top: `${Math.max(52, previewWindow.y)}px`,
               width: `${previewWindow.width}px`,
+              maxWidth: 'calc(100vw - 16px)',
               height: `${previewWindow.height}px`,
               zIndex: 60,
             }}
@@ -1622,18 +1623,18 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
       {/* SECTION 2: FORMAL PATTERN CODE TABLE WITH MERGED HEADER BAR */}
       <section
         ref={tableCardRef}
-        className="bg-[#111827] border border-slate-800 rounded-lg p-2 space-y-1.5"
+        className="bg-[#111827] border border-slate-800 rounded-lg p-1.5 sm:p-2 space-y-1.5"
       >
         {/* Single-Row Merged Table Header + Quick Code + Copy + Mirror + Controls */}
-        <div className="flex flex-wrap items-center justify-center gap-2 bg-[#0B0F17] px-2 py-1 rounded border border-slate-800 text-xs">
-          <div className="flex flex-wrap items-center justify-center gap-2">
+        <div className="flex flex-wrap items-center justify-between sm:justify-center gap-1.5 sm:gap-2 bg-[#0B0F17] px-2 py-1.5 sm:py-1 rounded border border-slate-800 text-xs">
+          <div className="flex flex-wrap items-center justify-between sm:justify-center gap-1.5 sm:gap-2 w-full sm:w-auto">
             <span className="font-bold text-white whitespace-nowrap">
-              Zincir Tablosu ({rows.length}K):
+              Zincir ({rows.length}K):
             </span>
 
             {/* Quick Notation Input */}
-            <div className="flex items-center gap-1 bg-[#111827] px-1.5 py-0.5 rounded border border-slate-800">
-              <span className="text-[11px] font-semibold text-slate-400 whitespace-nowrap">
+            <div className="flex items-center gap-1 bg-[#111827] px-1.5 py-0.5 rounded border border-slate-800 flex-1 sm:flex-initial">
+              <span className="text-[11px] font-semibold text-slate-400 whitespace-nowrap hidden xs:inline">
                 Hızlı:
               </span>
               <select
@@ -1652,12 +1653,12 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                 value={quickInputText}
                 onChange={(e) => setQuickInputText(e.target.value)}
                 placeholder="1 0 1 2..."
-                className="bg-[#0B0F17] border border-slate-700 rounded px-1.5 py-0.5 text-xs text-white font-mono w-28 sm:w-36 focus:outline-none focus:border-blue-500"
+                className="bg-[#0B0F17] border border-slate-700 rounded px-1.5 py-0.5 text-xs text-white font-mono w-full sm:w-36 focus:outline-none focus:border-blue-500 min-w-[70px]"
               />
               <button
                 type="button"
                 onClick={handleQuickNotationParse}
-                className="p-1 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors cursor-pointer"
+                className="p-1 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors cursor-pointer shrink-0"
                 title="Hızlı Kodu Uygula"
               >
                 <Check className="w-3.5 h-3.5" />
@@ -1724,10 +1725,8 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                 Aynala
               </button>
             </div>
-          </div>
 
-          {/* Right: Table Reset */}
-          <div className="flex items-center gap-1">
+            {/* Table Reset */}
             <button
               type="button"
               onClick={resetRowsToSingle}
@@ -1745,7 +1744,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
           <table className="w-full text-left text-xs font-mono border-collapse tabular-nums">
             <thead className="bg-[#0F172A] sticky top-0 z-10 border-b border-slate-800">
               <tr>
-                <th className="py-1.5 px-2 text-slate-300 text-center w-16 border-r border-slate-800 font-semibold">
+                <th className="py-1.5 px-1.5 sm:px-2 text-slate-300 text-center w-12 sm:w-16 border-r border-slate-800 font-semibold">
                   Kurs
                 </th>
                 {activeBars.map((gbId) => {
@@ -1756,14 +1755,14 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                   return (
                     <th
                       key={gbId}
-                      className="py-1.5 px-2 text-center border-r border-slate-800 font-bold"
+                      className="py-1.5 px-1.5 sm:px-2 text-center border-r border-slate-800 font-bold"
                       style={{
                         backgroundColor: softBg,
                         color: gbColor,
                         borderBottom: `2px solid ${gbColor}`,
                       }}
                     >
-                      <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
+                      <div className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5">
                         <div className="flex items-center gap-1">
                           <span
                             className="w-2 h-2 rounded-xs shrink-0"
@@ -1778,7 +1777,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                     </th>
                   );
                 })}
-                <th className="py-1.5 px-2 text-right text-slate-300 w-24 font-semibold">
+                <th className="py-1.5 px-1.5 sm:px-2 text-right text-slate-300 w-20 sm:w-24 font-semibold">
                   İşlem
                 </th>
               </tr>
@@ -1807,11 +1806,11 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                   }`}
                 >
                   <td
-                    className="py-1 px-1.5 text-center font-bold text-slate-200 border-r border-slate-800 bg-[#0F172A]/60 cursor-grab active:cursor-grabbing"
+                    className="py-1 px-1 sm:px-1.5 text-center font-bold text-slate-200 border-r border-slate-800 bg-[#0F172A]/60 cursor-grab active:cursor-grabbing"
                     title="Sürükle"
                   >
                     <div className="flex items-center justify-center gap-0.5">
-                      <GripVertical className="w-3 h-3 text-slate-500 shrink-0" />
+                      <GripVertical className="w-3 h-3 text-slate-500 shrink-0 hidden sm:inline" />
                       <span>K{row.courseIndex}</span>
                     </div>
                   </td>
@@ -1825,7 +1824,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                     return (
                       <td
                         key={gbId}
-                        className="py-1 px-1.5 text-center border-r border-slate-800/60"
+                        className="py-1 px-1 sm:px-1.5 text-center border-r border-slate-800/60"
                         style={{ backgroundColor: softBg }}
                       >
                         <div className="flex items-center justify-center gap-0.5">
@@ -1845,7 +1844,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                             onChange={(e) =>
                               handleCellChange(rIdx, gbId, parseInt(e.target.value, 10))
                             }
-                            className="w-11 h-6 bg-[#0B0F17] rounded text-center font-bold font-mono focus:outline-none text-xs border border-slate-700 focus:border-blue-500 tabular-nums"
+                            className="w-9 sm:w-11 h-6 bg-[#0B0F17] rounded text-center font-bold font-mono focus:outline-none text-xs border border-slate-700 focus:border-blue-500 tabular-nums"
                             style={{ color: gbColor }}
                           />
                           <button
@@ -1861,7 +1860,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                           <button
                             type="button"
                             onClick={() => toggleCellSkip(rIdx, gbId)}
-                            className={`px-1.5 h-6 rounded text-[10px] font-bold border transition-colors cursor-pointer whitespace-nowrap ${
+                            className={`px-1 sm:px-1.5 h-6 rounded text-[10px] font-bold border transition-colors cursor-pointer whitespace-nowrap ${
                               isSkipped
                                 ? 'bg-rose-600 text-white border-rose-500'
                                 : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
@@ -1875,8 +1874,8 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                     );
                   })}
 
-                  <td className="py-1 px-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
+                  <td className="py-1 px-1 sm:px-2 text-right">
+                    <div className="flex items-center justify-end gap-0.5 sm:gap-1">
                       <button
                         type="button"
                         onClick={() => insertRowAfter(rIdx)}

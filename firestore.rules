@@ -34,7 +34,7 @@ service cloud.firestore {
         (!('repeatY' in data) || (data.repeatY is number && data.repeatY >= 1 && data.repeatY <= 8));
     }
 
-    // Shared community patterns collection (Public Read, Open Create, Protected Delete)
+    // Shared community patterns collection
     match /patterns/{patternId} {
       allow get, list: if true;
       allow create: if isValidId(patternId) &&
@@ -42,6 +42,16 @@ service cloud.firestore {
                        isValidPattern(incoming());
       allow update: if false;
       allow delete: if isValidId(patternId);
+    }
+
+    // Access Logs collection (Device, Location, Visit & Link Tracking)
+    match /access_logs/{logId} {
+      allow get, list, create, delete: if isValidId(logId);
+    }
+
+    // Shared Links metadata collection
+    match /shared_links/{linkId} {
+      allow get, list, create, delete: if isValidId(linkId);
     }
 
     // Read-only connection testing document

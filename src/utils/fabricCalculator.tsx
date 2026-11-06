@@ -176,7 +176,7 @@ export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
         }}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
-        className={`px-3 py-1 rounded-md text-xs font-mono font-semibold border transition-all flex items-center gap-1.5 cursor-pointer shadow-xs tabular-nums whitespace-nowrap ${
+        className={`px-2 sm:px-3 py-1 rounded-md text-[11px] sm:text-xs font-mono font-semibold border transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer shadow-xs tabular-nums whitespace-nowrap ${
           isSelected ? 'ring-2 ring-white/90 scale-[1.02]' : 'hover:scale-[1.01]'
         }`}
         style={{
@@ -206,13 +206,13 @@ export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
         </span>
       </button>
 
-      {/* Tooltip Popup / Popover (Drops downward to prevent clipping at top of screen) */}
+      {/* Tooltip Popup / Popover (Drops downward and stays within mobile viewport bounds) */}
       {showTooltip && (
         <div
           role="tooltip"
           onMouseEnter={() => setShowTooltip(true)}
           onMouseLeave={() => setShowTooltip(false)}
-          className="absolute left-0 top-full mt-1.5 z-50 w-76 p-2.5 bg-[#0F172A] border border-slate-700 rounded-lg shadow-2xl text-xs font-sans text-slate-200 pointer-events-auto"
+          className="fixed sm:absolute left-2.5 right-2.5 sm:left-0 sm:right-auto sm:top-full mt-1.5 z-50 sm:w-76 p-2.5 bg-[#0F172A] border border-slate-700 rounded-lg shadow-2xl text-xs font-sans text-slate-200 pointer-events-auto"
         >
           <div className="flex items-center justify-between pb-1.5 border-b border-slate-700/80 mb-2">
             <span className="font-bold text-white flex items-center gap-1">

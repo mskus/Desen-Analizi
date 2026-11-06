@@ -1,0 +1,416 @@
+import React, { useState, useEffect } from 'react';
+import { AccessLogItem, subscribeToAccessLogs, deleteAccessLog } from '../services/loggingService';
+import {
+  ShieldAlert,
+  Lock,
+  Unlock,
+  Search,
+  Monitor,
+  Smartphone,
+  MapPin,
+  Share2,
+  ExternalLink,
+  Eye,
+  Trash2,
+  Check,
+  RefreshCw,
+  Clock,
+  ArrowRight,
+} from 'lucide-react';
+
+interface AccessLogsTabProps {
+  onSelectPatternById?: (patternId: string) => void;
+}
+
+const PASSWORD = '741852';
+
+export const AccessLogsTab: React.FC<AccessLogsTabProps> = ({ onSelectPatternById }) => {
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    if (typeof sessionStorage !== 'undefined') {
+      return sessionStorage.getItem('warpknitt_logs_unlocked') === 'true';
+    }
+    return false;
+  });
+
+  const [passwordInput, setPasswordInput] = useState('');
+  const [authError, setAuthError] = useState(false);
+
+  const [logs, setLogs] = useState<AccessLogItem[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedType, setSelectedType] = useState<string>('Tümü');
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isUnlocked) return;
+    const unsub = subscribeToAccessLogs((fetchedLogs) => {
+      setLogs(fetchedLogs);
+    });
+    return () => unsub();
+  }, [isUnlocked]);
+
+  const handleUnlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordInput.trim() === PASSWORD) {
+      setIsUnlocked(true);
+      setAuthError(false);
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('warpknitt_logs_unlocked', 'true');
+      }
+    } else {
+      setAuthError(true);
+      setPasswordInput('');
+    }
+  };
+
+  const handleLockOut = () => {
+    setIsUnlocked(false);
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('warpknitt_logs_unlocked');
+    }
+  };
+
+  const handleDeleteLog = (id: string) => {
+    deleteAccessLog(id).then(() => {
+      setToastMsg('Log kaydı silindi.');
+      setTimeout(() => setToastMsg(null), 2000);
+    });
+  };
+
+  if (!isUnlocked) {
+    return (
+      <div className="w-full max-w-md mx-auto px-4 py-12">
+        <div className="bg-[#111827] border border-slate-800 rounded-xl p-6 shadow-2xl space-y-4 text-center">
+          <div className="w-12 h-12 bg-blue-950/80 border border-blue-800/80 rounded-full flex items-center justify-center mx-auto text-blue-400">
+            <Lock className="w-6 h-6" />
+          </div>
+
+          <div>
+            <h2 className="text-base font-bold text-white tracking-tight">Sistem Erişim & Paylaşım Logları</h2>
+            <p className="text-xs text-slate-400 mt-1">
+              Bu alana sadece yetkili şifreye sahip kişiler erişebilir.
+            </p>
+          </div>
+
+          <form onSubmit={handleUnlock} className="space-y-3 pt-2">
+            <div>
+              <input
+                type="password"
+                inputMode="numeric"
+                value={passwordInput}
+                onChange={(e) => {
+                  setPasswordInput(e.target.value);
+                  if (authError) setAuthError(false);
+                }}
+                placeholder="Şifreyi giriniz (6 Hane)"
+                className={`w-full bg-[#0B0F17] border rounded-lg px-3 py-2 text-center text-sm font-mono font-bold text-white focus:outline-none transition-colors ${
+                  authError ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                }`}
+                autoFocus
+              />
+              {authError && (
+                <p className="text-xs font-semibold text-rose-400 mt-1 flex items-center justify-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>Hatalı şifre! Lütfen tekrar deneyin.</span>
+                </p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Unlock className="w-4 h-4" />
+              <span>Giriş Yap</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // Filter logs
+  const filteredLogs = logs.filter((log) => {
+    const matchesType =
+      selectedType === 'Tümü' ||
+      (selectedType === 'Ziyaret' && log.type === 'visit') ||
+      (selectedType === 'Paylaşım' && log.type === 'share_created') ||
+      (selectedType === 'Açılan Link' && log.type === 'share_opened');
+
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch =
+      !searchTerm ||
+      (log.location?.displayLocation || '').toLowerCase().includes(searchLower) ||
+      (log.location?.ip || '').toLowerCase().includes(searchLower) ||
+      (log.device?.os || '').toLowerCase().includes(searchLower) ||
+      (log.device?.browser || '').toLowerCase().includes(searchLower) ||
+      (log.patternTitle || '').toLowerCase().includes(searchLower) ||
+      (log.shareOrigin?.location || '').toLowerCase().includes(searchLower);
+
+    return matchesType && matchesSearch;
+  });
+
+  const visitCount = logs.filter((l) => l.type === 'visit').length;
+  const shareCount = logs.filter((l) => l.type === 'share_created').length;
+  const openCount = logs.filter((l) => l.type === 'share_opened').length;
+
+  return (
+    <div className="w-full px-2 py-2 space-y-3">
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div className="bg-emerald-950/90 border border-emerald-700 text-emerald-100 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 fixed top-14 right-4 z-50 shadow-xl">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
+      {/* Header & Stats Bar */}
+      <section className="bg-[#111827] border border-slate-800 rounded-xl p-3 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-emerald-950/80 border border-emerald-800 rounded-lg text-emerald-400">
+              <Unlock className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                <span>Erişim & Konum Log Analizi</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 bg-emerald-950 text-emerald-400 border border-emerald-800 rounded-full">
+                  Kilit Açıldı
+                </span>
+              </h2>
+              <p className="text-[11px] text-slate-400">
+                Giriş yapan cihazlar, konumlar, oluşturulan ve farklı konumlarda açılan desen linkleri.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleLockOut}
+            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+            title="Oturumu Kilitle"
+          >
+            <Lock className="w-3.5 h-3.5 text-rose-400" />
+            <span>Kilitle</span>
+          </button>
+        </div>
+
+        {/* Metric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-slate-400 text-[11px] font-medium block">Toplam Log</span>
+              <strong className="text-sm font-bold text-white font-mono tabular-nums">{logs.length}</strong>
+            </div>
+            <Clock className="w-4 h-4 text-blue-400 shrink-0" />
+          </div>
+
+          <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-slate-400 text-[11px] font-medium block">Site Ziyareti</span>
+              <strong className="text-sm font-bold text-emerald-400 font-mono tabular-nums">{visitCount}</strong>
+            </div>
+            <Eye className="w-4 h-4 text-emerald-400 shrink-0" />
+          </div>
+
+          <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-slate-400 text-[11px] font-medium block">Paylaşılan Link</span>
+              <strong className="text-sm font-bold text-purple-400 font-mono tabular-nums">{shareCount}</strong>
+            </div>
+            <Share2 className="w-4 h-4 text-purple-400 shrink-0" />
+          </div>
+
+          <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-slate-400 text-[11px] font-medium block">Açılan Link</span>
+              <strong className="text-sm font-bold text-amber-400 font-mono tabular-nums">{openCount}</strong>
+            </div>
+            <ExternalLink className="w-4 h-4 text-amber-400 shrink-0" />
+          </div>
+        </div>
+
+        {/* Filter & Search Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {['Tümü', 'Ziyaret', 'Paylaşım', 'Açılan Link'].map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setSelectedType(type)}
+                className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
+                  selectedType === type
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-[#0B0F17] text-slate-300 hover:text-white border border-slate-800'
+                }`}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-full sm:w-64">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Konum, Şehir, İP veya Cihaz ara..."
+              className="w-full bg-[#0B0F17] border border-slate-700 rounded pl-8 pr-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Access Logs Table & Cards */}
+      {filteredLogs.length === 0 ? (
+        <div className="bg-[#111827] border border-slate-800 rounded-xl p-8 text-center text-slate-400 text-xs">
+          Henüz kayıtlı bir log bulunmuyor.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filteredLogs.map((log) => {
+            const formattedTime = log.timestamp
+              ? new Date(log.timestamp).toLocaleString('tr-TR', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                })
+              : '';
+
+            return (
+              <div
+                key={log.id}
+                className="bg-[#111827] border border-slate-800 hover:border-slate-700 rounded-xl p-3 transition-colors text-xs space-y-2"
+              >
+                {/* Header row: Log Type Badge + Date + Pattern link */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-slate-800/80">
+                  <div className="flex items-center gap-2">
+                    {log.type === 'visit' && (
+                      <span className="px-2 py-0.5 rounded font-bold text-[11px] bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1">
+                        <Eye className="w-3 h-3" />
+                        <span>Site Ziyareti</span>
+                      </span>
+                    )}
+
+                    {log.type === 'share_created' && (
+                      <span className="px-2 py-0.5 rounded font-bold text-[11px] bg-purple-950 text-purple-400 border border-purple-800 flex items-center gap-1">
+                        <Share2 className="w-3 h-3" />
+                        <span>Link Oluşturuldu</span>
+                      </span>
+                    )}
+
+                    {log.type === 'share_opened' && (
+                      <span className="px-2 py-0.5 rounded font-bold text-[11px] bg-amber-950 text-amber-400 border border-amber-800 flex items-center gap-1">
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Link Açıldı</span>
+                      </span>
+                    )}
+
+                    {log.patternTitle && (
+                      <span className="font-bold text-white flex items-center gap-1">
+                        <span>Desen:</span>
+                        <span className="text-blue-400">{log.patternTitle}</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 font-mono tabular-nums text-[11px]">{formattedTime}</span>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteLog(log.id)}
+                      className="p-1 text-slate-500 hover:text-rose-400 rounded transition-colors cursor-pointer"
+                      title="Logu Sil"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Main Log Info Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {/* Left Column: Client / Opener Device & Location */}
+                  <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-slate-300 font-bold border-b border-slate-800/80 pb-1">
+                      {log.device?.isMobile ? (
+                        <Smartphone className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                      ) : (
+                        <Monitor className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                      )}
+                      <span>{log.type === 'share_opened' ? 'Açan Cihaz & Konum' : 'Cihaz & Konum'}</span>
+                    </div>
+
+                    <div className="space-y-1 font-mono text-[11px] text-slate-300">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-sans">Konum:</span>
+                        <span className="text-emerald-400 font-bold flex items-center gap-1">
+                          <MapPin className="w-3 h-3 shrink-0 text-emerald-400" />
+                          <span>{log.location?.displayLocation || 'Bilinmiyor'}</span>
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-sans">İP Adresi:</span>
+                        <span className="text-slate-200">{log.location?.ip || 'Gizli'}</span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-sans">Cihaz / İŞ:</span>
+                        <span className="text-slate-200">{log.device?.os} ({log.device?.isMobile ? 'Mobil' : 'Masaüstü'})</span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-sans">Tarayıcı:</span>
+                        <span className="text-slate-200">{log.device?.browser}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Share Link Origin Details (If opened via shared link) */}
+                  {log.type === 'share_opened' && log.shareOrigin ? (
+                    <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-amber-900/40 space-y-1.5">
+                      <div className="flex items-center justify-between text-amber-300 font-bold border-b border-slate-800/80 pb-1">
+                        <span className="flex items-center gap-1.5">
+                          <Share2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>Linkin Paylaşıldığı Orijinal Konum</span>
+                        </span>
+                      </div>
+
+                      <div className="space-y-1 font-mono text-[11px] text-slate-300">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-sans">Paylaşılan Konum:</span>
+                          <span className="text-amber-300 font-bold flex items-center gap-1">
+                            <MapPin className="w-3 h-3 shrink-0 text-amber-400" />
+                            <span>{log.shareOrigin.location}</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-sans">Paylaşan İP:</span>
+                          <span className="text-slate-300">{log.shareOrigin.ip || 'Gizli'}</span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-sans">Paylaşan Cihaz:</span>
+                          <span className="text-slate-300">{log.shareOrigin.device}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-[#0B0F17] p-2.5 rounded-lg border border-slate-800 flex items-center justify-center text-slate-500 font-mono text-[11px]">
+                      <span>{log.type === 'share_created' ? 'Paylaşım bağlantısı oluşturuldu.' : 'Direkt Ziyaret'}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};

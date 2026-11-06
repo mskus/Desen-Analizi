@@ -6,6 +6,7 @@ import { MachineSettingsTab } from './components/MachineSettingsTab';
 import { SimulationTab } from './components/SimulationTab';
 import { InteractiveEditorTab } from './components/InteractiveEditorTab';
 import { LibraryTab } from './components/LibraryTab';
+import { AccessLogsTab } from './components/AccessLogsTab';
 import { ExportImportModal } from './components/ExportImportModal';
 import { SafetySettingsModal } from './components/SafetySettingsModal';
 import { SavePatternModal } from './components/SavePatternModal';
@@ -15,11 +16,13 @@ import {
   subscribeToCloudPatterns,
   getClientAuthorId,
 } from './services/patternSyncService';
+import { logSiteVisit, trackSharedLinkOpened } from './services/loggingService';
+import { Check } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const saved = localStorage.getItem('warpknitt_active_tab');
-    if (saved && ['simulation', 'editor', 'machine', 'library'].includes(saved)) {
+    if (saved && ['simulation', 'editor', 'machine', 'library', 'logs'].includes(saved)) {
       return saved as ActiveTab;
     }
     return 'simulation';
@@ -74,6 +77,7 @@ export default function App() {
   const [modalMode, setModalMode] = useState<'export' | 'import' | null>(null);
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState<boolean>(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState<boolean>(false);
+  const [shareLoadedNotice, setShareLoadedNotice] = useState<string | null>(null);
 
   const [fabricWidthCm, setFabricWidthCm] = useState<number>(() => {
     const saved = localStorage.getItem('warpknitt_fabric_width_cm');
@@ -99,6 +103,11 @@ export default function App() {
     localStorage.setItem('warpknitt_custom_patterns', JSON.stringify(customPatterns));
   }, [customPatterns]);
 
+  // Log site visit on initial boot
+  useEffect(() => {
+    logSiteVisit().catch((err) => console.error('Site visit log error:', err));
+  }, []);
+
   // Real-time synchronization of shared community patterns
   useEffect(() => {
     setIsSyncing(true);
@@ -123,6 +132,37 @@ export default function App() {
       unsub();
     };
   }, []);
+
+  const allPatterns = [...customPatterns, ...patternLibrary];
+
+  // Handle URL share parameters (?patId=xxx&stoken=yyy)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const patId = urlParams.get('patId');
+    const stoken = urlParams.get('stoken');
+
+    if (patId) {
+      const found = allPatterns.find((p) => p.id === patId);
+      if (found) {
+        const safePat = {
+          ...found,
+          safety: found.safety || { ...defaultSafetyConfig },
+        };
+        setCurrentPattern(safePat);
+        setHistory([safePat.rows]);
+        setHistoryIndex(0);
+        setActiveTab('simulation');
+        setShareLoadedNotice(`Paylaşılan desen yüklendi: ${found.title}`);
+        setTimeout(() => setShareLoadedNotice(null), 4000);
+      }
+      if (stoken) {
+        trackSharedLinkOpened(stoken, patId, found?.title).catch((err) =>
+          console.error('Track share opened error:', err)
+        );
+      }
+    }
+  }, [customPatterns.length]);
 
   const handleSelectPattern = (pattern: PatternData) => {
     const safePat: PatternData = {
@@ -185,57 +225,54 @@ export default function App() {
     }
   };
 
-  const handleUpdateMachine = (machine: MachineProfile) => {
-    setCurrentPattern((prev) => ({
-      ...prev,
-      machine,
-    }));
-  };
-
-  const handleUpdateGuideBar = (id: GuideBarId, gbConfig: GuideBarConfig) => {
+  const handleUpdateGuideBar = (id: GuideBarId, updated: GuideBarConfig) => {
     setCurrentPattern((prev) => ({
       ...prev,
       guideBars: {
         ...prev.guideBars,
-        [id]: gbConfig,
+        [id]: updated,
       },
     }));
   };
 
-  const handleUpdateSafety = (safety: SafetyConfig) => {
+  const handleUpdateMachine = (updatedMachine: MachineProfile) => {
     setCurrentPattern((prev) => ({
       ...prev,
-      safety,
+      machine: updatedMachine,
     }));
   };
 
-  const appRef = React.useRef<HTMLDivElement | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const handleUpdateSafety = (updatedSafety: SafetyConfig) => {
+    setCurrentPattern((prev) => ({
+      ...prev,
+      safety: updatedSafety,
+    }));
+  };
 
-  useEffect(() => {
-    const handleFsChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFsChange);
-    return () => document.removeEventListener('fullscreenchange', handleFsChange);
-  }, []);
+  const isFullscreen = false;
 
   const toggleAppFullscreen = () => {
     if (!document.fullscreenElement) {
-      if (appRef.current) {
-        appRef.current.requestFullscreen().catch((err) => console.error(err));
-      } else {
-        document.documentElement.requestFullscreen().catch((err) => console.error(err));
-      }
+      document.documentElement.requestFullscreen().catch((err) => {
+        console.error('Fullscreen request failed', err);
+      });
     } else {
-      document.exitFullscreen().catch((err) => console.error(err));
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
     }
   };
 
-  const allPatterns = [...customPatterns, ...patternLibrary];
-
   return (
-    <div ref={appRef} className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+    <div className="min-h-screen bg-[#070A12] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+      {/* Share Link Loaded Toast Banner */}
+      {shareLoadedNotice && (
+        <div className="bg-emerald-950/95 border border-emerald-700 text-emerald-100 px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 fixed top-14 left-1/2 transform -translate-x-1/2 z-50 shadow-2xl">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{shareLoadedNotice}</span>
+        </div>
+      )}
+
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -319,6 +356,15 @@ export default function App() {
             onSaveCurrentToLibrary={() => setIsSaveModalOpen(true)}
             onDeletePattern={handleDeleteCustomPattern}
             currentAuthorId={currentAuthorId}
+          />
+        )}
+
+        {activeTab === 'logs' && (
+          <AccessLogsTab
+            onSelectPatternById={(patId) => {
+              const found = allPatterns.find((p) => p.id === patId);
+              if (found) handleSelectPattern(found);
+            }}
           />
         )}
       </main>
