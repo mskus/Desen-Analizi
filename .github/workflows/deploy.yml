@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -40,6 +40,12 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
+      - name: Prepare production files for GitHub Pages
+        run: |
+          touch ./dist/.nojekyll
+          cp ./dist/index.html ./dist/404.html
+
+      # Deployment Path 1: GitHub Actions (when Pages Source is "GitHub Actions")
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
@@ -51,3 +57,12 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # Deployment Path 2: gh-pages branch (when Pages Source is "Deploy from a branch -> gh-pages")
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        if: always()
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          force_orphan: true

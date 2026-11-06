@@ -11,7 +11,6 @@ import {
   Grid,
   FolderKanban,
   Cloud,
-  ShieldAlert,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -51,7 +50,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'editor', label: '02. Editör', mobileLabel: 'Editör', icon: <Grid className="w-3.5 h-3.5 shrink-0" /> },
     { id: 'library', label: '03. Kütüphane', mobileLabel: 'Kütüphane', icon: <FolderKanban className="w-3.5 h-3.5 shrink-0" /> },
     { id: 'machine', label: '04. Makine', mobileLabel: 'Makine', icon: <Sliders className="w-3.5 h-3.5 shrink-0" /> },
-    { id: 'logs', label: '05. Loglar 🔒', mobileLabel: 'Loglar 🔒', icon: <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-amber-400" /> },
   ];
 
   return (
