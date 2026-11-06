@@ -6,7 +6,7 @@ coverage/
 .DS_Store
 *.log
 
-# Sensitive Environment Files & API Keys
+# Sensitive Environment Files & Private Keys
 .env
 .env.*
 !.env.example
@@ -16,12 +16,7 @@ coverage/
 *.secret
 *.p12
 *.json.key
-
-# Cloud & Service Configurations with API Keys
-firebase-applet-config.json
 serviceAccountKey.json
-google-services.json
-GoogleService-Info.plist
 
 # Local IDE & OS files
 .idea/
