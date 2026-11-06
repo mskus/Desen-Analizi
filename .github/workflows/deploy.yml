@@ -1,4 +1,4 @@
-name: GitHub Pages Canlı Yayınlama (Deploy)
+name: Deploy to GitHub Pages
 
 on:
   push:
@@ -23,29 +23,31 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Kodu Çek (Checkout)
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Node.js Kurulumu
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      - name: Bağımlılıkları Yükle
-        run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+      - name: Install dependencies
+        run: npm install
 
-      - name: Projeyi Derle (Build)
-        run: npm run build && touch ./dist/.nojekyll && cp ./dist/index.html ./dist/404.html
+      - name: Build production bundle
+        run: npm run build
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
-      - name: GitHub Pages Yapılandırması
+      - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Dist Klasörünü Yükle (Artifact)
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: './dist'
 
-      - name: Canlıya Yayınla (Deploy to GitHub Pages)
+      - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
