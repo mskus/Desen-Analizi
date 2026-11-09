@@ -11,6 +11,7 @@ import {
   Grid,
   FolderKanban,
   Cloud,
+  Activity,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -50,6 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'editor', label: '02. Editör', mobileLabel: 'Editör', icon: <Grid className="w-3.5 h-3.5 shrink-0" /> },
     { id: 'library', label: '03. Kütüphane', mobileLabel: 'Kütüphane', icon: <FolderKanban className="w-3.5 h-3.5 shrink-0" /> },
     { id: 'machine', label: '04. Makine', mobileLabel: 'Makine', icon: <Sliders className="w-3.5 h-3.5 shrink-0" /> },
+    { id: 'analysis', label: '05. Analiz', mobileLabel: 'Analiz', icon: <Activity className="w-3.5 h-3.5 shrink-0 text-cyan-400" /> },
   ];
 
   return (
@@ -128,7 +130,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <span className="text-slate-700 hidden sm:inline">|</span>
 
-          <nav className="grid grid-cols-4 sm:flex items-center gap-1 w-full sm:w-auto">
+          <nav className="grid grid-cols-5 sm:flex items-center gap-1 w-full sm:w-auto">
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
               return (

@@ -5,6 +5,7 @@ import { Navbar } from './components/Navbar';
 import { MachineSettingsTab } from './components/MachineSettingsTab';
 import { SimulationTab } from './components/SimulationTab';
 import { InteractiveEditorTab } from './components/InteractiveEditorTab';
+import { AnalysisTab } from './components/AnalysisTab';
 import { LibraryTab } from './components/LibraryTab';
 import { AccessLogsTab } from './components/AccessLogsTab';
 import { ExportImportModal } from './components/ExportImportModal';
@@ -24,7 +25,7 @@ import { Check } from 'lucide-react';
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const saved = localStorage.getItem('warpknitt_active_tab');
-    if (saved && ['simulation', 'editor', 'machine', 'library', 'logs'].includes(saved)) {
+    if (saved && ['simulation', 'editor', 'machine', 'library', 'analysis', 'logs'].includes(saved)) {
       return saved as ActiveTab;
     }
     return 'simulation';
@@ -371,6 +372,15 @@ export default function App() {
             onSelectPattern={handleSelectPattern}
             onSaveCurrentToLibrary={() => setIsSaveModalOpen(true)}
             onDeletePattern={handleDeleteCustomPattern}
+          />
+        )}
+
+        {activeTab === 'analysis' && (
+          <AnalysisTab
+            pattern={currentPattern}
+            fabricWidthCm={fabricWidthCm}
+            onChangeMachine={handleUpdateMachine}
+            onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
           />
         )}
 

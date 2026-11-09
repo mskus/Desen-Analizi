@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { PatternData, GuideBarId, GuideBarConfig, SafetyConfig, PatternRow } from '../types';
 import { calculateGuideBarMetrics, GuideBarCalcBadge } from '../utils/fabricCalculator';
-import { FabricTensionChart } from './FabricTensionChart';
-import { PatternSummaryPanel } from './PatternSummaryPanel';
 import {
   ZoomIn,
   ZoomOut,
@@ -1507,13 +1505,6 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
         </div>
       )}
 
-      {/* DESEN ÖZET PANELİ (Top İğne Yoğunluğu, İplik Tüketimi & Örme Zorluk Derecesi) */}
-      <PatternSummaryPanel
-        pattern={pattern}
-        fabricWidthCm={fabricWidthCm}
-        onOpenSafetySettings={onOpenSafetySettings}
-      />
-
       {/* SECTION 1: COMPACT GUIDE BAR & THREADING TOOLBAR */}
       <section className="bg-[#111827] border border-slate-800 rounded-xl p-2 sm:p-3 space-y-2 sm:space-y-3">
         {/* Single-Row Threading Controls: Şablon, İğne Sayısı (+/- Butonlu), Hızlı Dizim Çipleri & Kurallar, Kopyala */}
@@ -2293,9 +2284,6 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
           </div>
         )}
       </div>
-
-      {/* SECTION 4: KUMAŞ GERİLİM YÜKÜ & DİNAMİK YAN AL RAPORU (RECHARTS GRAFİK BİLEŞENİ) */}
-      <FabricTensionChart pattern={pattern} onChangeMachine={onChangeMachine} />
     </div>
   );
 };

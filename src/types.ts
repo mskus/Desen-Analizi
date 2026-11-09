@@ -82,5 +82,5 @@ export interface PatternData {
   updatedAt?: string;
 }
 
-export type ActiveTab = 'simulation' | 'editor' | 'library' | 'machine' | 'logs';
+export type ActiveTab = 'simulation' | 'editor' | 'library' | 'machine' | 'analysis' | 'logs';
 
