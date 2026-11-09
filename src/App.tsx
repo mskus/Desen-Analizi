@@ -353,6 +353,7 @@ export default function App() {
             onChangeGuideBar={handleUpdateGuideBar}
             onChangeRows={handleUpdateRows}
             onChangeSafety={handleUpdateSafety}
+            onChangeMachine={handleUpdateMachine}
             onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
             activeTab={activeTab}
             setActiveTab={setActiveTab}

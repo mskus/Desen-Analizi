@@ -128,17 +128,17 @@ export const SafetySettingsModal: React.FC<SafetySettingsModalProps> = ({
 
           {/* Maximum Allowed Needle Span */}
           <div className="bg-[#0B0F17] p-2.5 rounded border border-slate-800 flex items-center justify-between gap-2">
-            <span className="font-bold text-white">Maks. İğne İndeksi (7–127):</span>
+            <span className="font-bold text-white">Maks. İğne İndeksi (7–299):</span>
             <div className="flex items-center gap-1">
               <input
                 type="number"
                 min="7"
-                max="127"
+                max="299"
                 value={safety.maxAllowedNeedleNumber}
                 onChange={(e) =>
                   handleFieldChange(
                     'maxAllowedNeedleNumber',
-                    Math.max(7, Math.min(127, parseInt(e.target.value, 10) || 18))
+                    Math.max(7, Math.min(299, parseInt(e.target.value, 10) || 18))
                   )
                 }
                 className="w-16 bg-[#111827] border border-slate-700 rounded px-2 py-1 text-center text-white font-mono font-bold tabular-nums focus:outline-none focus:border-blue-500"

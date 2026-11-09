@@ -1,10 +1,10 @@
 import { PatternData, GuideBarConfig, SafetyConfig } from '../types';
 
-export const create5In5Out = (length = 96): boolean[] => {
+export const create5In5Out = (length = 300): boolean[] => {
   return Array.from({ length }, (_, i) => (i % 10) < 5);
 };
 
-export const createThreadingArray = (type: string, length = 96): boolean[] => {
+export const createThreadingArray = (type: string, length = 300): boolean[] => {
   const clean = type.toLowerCase();
   if (clean.includes('boş') || clean.includes('out') || clean.includes('empty')) {
     return Array.from({ length }, () => false);

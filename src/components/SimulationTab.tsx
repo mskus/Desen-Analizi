@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { PatternData, GuideBarId, GuideBarConfig, SafetyConfig, PatternRow } from '../types';
 import { calculateGuideBarMetrics, GuideBarCalcBadge } from '../utils/fabricCalculator';
+import { FabricTensionChart } from './FabricTensionChart';
+import { PatternSummaryPanel } from './PatternSummaryPanel';
 import {
   ZoomIn,
   ZoomOut,
@@ -34,6 +36,7 @@ interface SimulationTabProps {
   onChangeGuideBar: (id: GuideBarId, updated: GuideBarConfig) => void;
   onChangeRows?: (rows: PatternRow[]) => void;
   onChangeSafety?: (safety: SafetyConfig) => void;
+  onChangeMachine?: (machine: PatternData['machine']) => void;
   onOpenSafetySettings: () => void;
   activeTab?: any;
   setActiveTab?: (tab: any) => void;
@@ -77,6 +80,8 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   onChangeGuideBar,
   onChangeRows,
   onChangeSafety,
+  onChangeMachine,
+  onOpenSafetySettings,
   onToggleFullscreen,
   isFullscreen: externalFs,
   fabricWidthCm = 410,
@@ -232,15 +237,15 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     };
   }, [displayMode]);
 
-  // Base needle count (up to 128) and total needles with horizontal repeat (repeatX)
-  const needleCols = Math.max(4, Math.min(128, (pattern.safety?.maxAllowedNeedleNumber || 18) + 1));
+  // Base needle count (up to 300) and total needles with horizontal repeat (repeatX)
+  const needleCols = Math.max(4, Math.min(300, (pattern.safety?.maxAllowedNeedleNumber || 18) + 1));
   const [needleInputText, setNeedleInputText] = useState<string>(String(needleCols));
 
   useEffect(() => {
     setNeedleInputText(String(needleCols));
   }, [needleCols]);
   const totalNeedles = needleCols * repeatX;
-  const baseNeedlePitch = totalNeedles > 96 ? 14 : totalNeedles > 64 ? 18 : totalNeedles > 32 ? 24 : 34;
+  const baseNeedlePitch = totalNeedles > 200 ? 6 : totalNeedles > 150 ? 8 : totalNeedles > 96 ? 12 : totalNeedles > 64 ? 18 : totalNeedles > 32 ? 24 : 34;
 
   const currentGuideBars = guideBarsState || pattern.guideBars;
   const activeBars = (Object.keys(currentGuideBars) as GuideBarId[]).filter(
@@ -430,7 +435,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   }, []);
 
   const handleApplyPreset = (
-    preset: 'full' | 'clear' | '5-5' | '1-1' | '1-2' | '1-3' | '2-2' | 'invert'
+    preset: 'full' | 'clear' | '5-5' | '1-1' | '1-2' | '1-3' | '2-2' | '3-3' | '4-4' | '6-2' | '12-12' | 'invert'
   ) => {
     const newArr = Array.from({ length: needleCols }, (_, i) => {
       if (preset === 'full') return true;
@@ -440,6 +445,10 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       if (preset === '1-2') return i % 3 === 0;
       if (preset === '1-3') return i % 4 === 0;
       if (preset === '2-2') return Math.floor(i / 2) % 2 === 0;
+      if (preset === '3-3') return Math.floor(i / 3) % 2 === 0;
+      if (preset === '4-4') return Math.floor(i / 4) % 2 === 0;
+      if (preset === '6-2') return i % 8 < 6;
+      if (preset === '12-12') return Math.floor(i / 12) % 2 === 0;
       if (preset === 'invert') return !currentThreading[i];
       return true;
     });
@@ -452,8 +461,20 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       '1-2': '1-2',
       '1-3': '1-3',
       '2-2': '2-2',
+      '3-3': '3-3',
+      '4-4': '4-4',
+      '6-2': '6-2',
+      '12-12': '12-12',
       invert: 'Ters',
     };
+
+    if (preset === '1-1') { setManualInCount(1); setManualOutCount(1); }
+    else if (preset === '2-2') { setManualInCount(2); setManualOutCount(2); }
+    else if (preset === '3-3') { setManualInCount(3); setManualOutCount(3); }
+    else if (preset === '4-4') { setManualInCount(4); setManualOutCount(4); }
+    else if (preset === '6-2') { setManualInCount(6); setManualOutCount(2); }
+    else if (preset === '12-12') { setManualInCount(12); setManualOutCount(12); }
+    else if (preset === '5-5') { setManualInCount(5); setManualOutCount(5); }
 
     setBinaryThreadingInput(newArr.map((b) => (b ? '1' : '0')).join(''));
 
@@ -1486,14 +1507,24 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
         </div>
       )}
 
+      {/* DESEN ÖZET PANELİ (Top İğne Yoğunluğu, İplik Tüketimi & Örme Zorluk Derecesi) */}
+      <PatternSummaryPanel
+        pattern={pattern}
+        fabricWidthCm={fabricWidthCm}
+        onOpenSafetySettings={onOpenSafetySettings}
+      />
+
       {/* SECTION 1: COMPACT GUIDE BAR & THREADING TOOLBAR */}
       <section className="bg-[#111827] border border-slate-800 rounded-xl p-2 sm:p-3 space-y-2 sm:space-y-3">
         {/* Single-Row Threading Controls: Şablon, İğne Sayısı (+/- Butonlu), Hızlı Dizim Çipleri & Kurallar, Kopyala */}
         <div className="bg-[#0B0F17] p-1.5 sm:p-2.5 rounded-lg border border-slate-800 text-xs overflow-visible">
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5">
-            {/* Şablonlar Dropdown Menu with Icon */}
-            <div className="flex items-center gap-1.5 bg-[#111827] px-2 py-1 rounded border border-slate-700" title="Dizilim Şablonları">
-              <LayoutTemplate className="w-4 h-4 text-blue-400 shrink-0" />
+            {/* Şablonlar Dropdown & Entegre Şablon Butonları (1/1, 2/2, 3/3, 4/4, 6/2, 12/12) */}
+            <div className="flex flex-wrap items-center gap-1.5 bg-[#111827] px-2 py-1 rounded-lg border border-slate-700" title="Dizilim Şablonları">
+              <div className="flex items-center gap-1">
+                <LayoutTemplate className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="text-xs font-bold text-slate-200">Şablon:</span>
+              </div>
               <select
                 value=""
                 onChange={(e) => {
@@ -1503,22 +1534,48 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                 }}
                 className="bg-[#0B0F17] border border-slate-700 text-slate-200 text-xs rounded px-1.5 sm:px-2 py-0.5 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
               >
-                <option value="" disabled>Şablon ▾</option>
+                <option value="" disabled>Şablon Seç ▾</option>
                 <option value="full">Tam Dolu</option>
-                <option value="5-5">5 Dolu 5 Boş</option>
-                <option value="1-1">1-1</option>
-                <option value="1-2">1-2</option>
-                <option value="1-3">1-3</option>
-                <option value="2-2">2-2</option>
+                <option value="1-1">1/1</option>
+                <option value="2-2">2/2</option>
+                <option value="3-3">3/3</option>
+                <option value="4-4">4/4</option>
+                <option value="6-2">6/2</option>
+                <option value="12-12">12/12</option>
+                <option value="5-5">5/5 (5-5)</option>
+                <option value="1-2">1/2</option>
+                <option value="1-3">1/3</option>
                 <option value="invert">Ters Çevir</option>
                 <option value="clear">Tümü Boş</option>
               </select>
+
+              {/* Entegre Şablon Butonları */}
+              <div className="flex items-center gap-1 border-l border-slate-700 pl-1.5">
+                {[
+                  { key: '1-1', label: '1/1' },
+                  { key: '2-2', label: '2/2' },
+                  { key: '3-3', label: '3/3' },
+                  { key: '4-4', label: '4/4' },
+                  { key: '6-2', label: '6/2' },
+                  { key: '12-12', label: '12/12' },
+                ].map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    onClick={() => handleApplyPreset(chip.key as any)}
+                    className="px-1.5 py-0.5 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 hover:border-blue-500 text-slate-300 hover:text-white rounded font-mono text-[11px] font-bold transition-colors cursor-pointer"
+                    title={`Şablon Uygula: ${chip.label}`}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* İğne Sayısı (Direct Text + Stepper Buttons [-] [+]) */}
             <div
               className="flex items-center gap-1 bg-[#111827] px-1.5 py-1 rounded border border-slate-700"
-              title="İğne Sayısı (4 - 128)"
+              title="İğne Sayısı (4 - 300)"
             >
               <Hash className="w-4 h-4 text-blue-400 shrink-0" />
               <button
@@ -1548,7 +1605,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                   const valStr = e.target.value;
                   setNeedleInputText(valStr);
                   const parsed = parseInt(valStr, 10);
-                  if (!isNaN(parsed) && parsed >= 4 && parsed <= 128 && onChangeSafety) {
+                  if (!isNaN(parsed) && parsed >= 4 && parsed <= 300 && onChangeSafety) {
                     onChangeSafety({
                       ...pattern.safety,
                       maxAllowedNeedleNumber: parsed - 1,
@@ -1557,7 +1614,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                 }}
                 onBlur={() => {
                   const parsed = parseInt(needleInputText, 10);
-                  const clamped = isNaN(parsed) ? 18 : Math.max(4, Math.min(128, parsed));
+                  const clamped = isNaN(parsed) ? 18 : Math.max(4, Math.min(300, parsed));
                   setNeedleInputText(String(clamped));
                   if (onChangeSafety && clamped !== needleCols) {
                     onChangeSafety({
@@ -1571,14 +1628,14 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className="w-10 bg-[#0B0F17] border border-slate-700 rounded px-1 py-0.5 text-center font-mono font-bold text-blue-400 text-xs focus:outline-none focus:border-blue-500 tabular-nums"
+                className="w-12 bg-[#0B0F17] border border-slate-700 rounded px-1 py-0.5 text-center font-mono font-bold text-blue-400 text-xs focus:outline-none focus:border-blue-500 tabular-nums"
                 title="İğne Sayısı"
               />
 
               <button
                 type="button"
                 onClick={() => {
-                  const next = Math.min(128, needleCols + 1);
+                  const next = Math.min(300, needleCols + 1);
                   setNeedleInputText(String(next));
                   if (onChangeSafety) {
                     onChangeSafety({
@@ -1633,20 +1690,20 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                 <input
                   type="number"
                   min={0}
-                  max={96}
+                  max={300}
                   value={manualInCount}
                   onChange={(e) => setManualInCount(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                  className="w-9 sm:w-10 bg-[#111827] border border-emerald-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-emerald-400 focus:outline-none focus:border-emerald-500 tabular-nums text-xs"
+                  className="w-10 sm:w-11 bg-[#111827] border border-emerald-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-emerald-400 focus:outline-none focus:border-emerald-500 tabular-nums text-xs"
                   title="Dolu İğne Sayısı"
                 />
                 <span className="text-slate-500 font-bold">/</span>
                 <input
                   type="number"
                   min={0}
-                  max={96}
+                  max={300}
                   value={manualOutCount}
                   onChange={(e) => setManualOutCount(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                  className="w-9 sm:w-10 bg-[#111827] border border-rose-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-rose-400 focus:outline-none focus:border-rose-500 tabular-nums text-xs"
+                  className="w-10 sm:w-11 bg-[#111827] border border-rose-800/80 rounded px-1 py-0.5 text-center font-mono font-bold text-rose-400 focus:outline-none focus:border-rose-500 tabular-nums text-xs"
                   title="Boş İğne Sayısı"
                 />
                 <button
@@ -1657,46 +1714,6 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                 >
                   <Wand2 className="w-3.5 h-3.5" />
                 </button>
-              </div>
-
-              {/* Quick Preset Pattern Chips (Available on both Mobile & Desktop) */}
-              <div className="flex flex-wrap items-center gap-1 sm:ml-1">
-                {[
-                  { inC: 1, outC: 1, label: '1/1' },
-                  { inC: 2, outC: 2, label: '2/2' },
-                  { inC: 3, outC: 3, label: '3/3' },
-                  { inC: 4, outC: 4, label: '4/4' },
-                  { inC: 6, outC: 2, label: '6/2' },
-                  { inC: 12, outC: 12, label: '12/12' },
-                ].map((chip) => (
-                  <button
-                    key={chip.label}
-                    type="button"
-                    onClick={() => {
-                      setManualInCount(chip.inC);
-                      setManualOutCount(chip.outC);
-                      const inCnt = chip.inC;
-                      const outCnt = chip.outC;
-                      const cycle = inCnt + outCnt;
-                      const newArr = Array.from({ length: needleCols }, (_, i) => {
-                        const mod = i % cycle;
-                        return manualStartMode === 'filled' ? mod < inCnt : mod >= outCnt;
-                      });
-                      const updatedGb: GuideBarConfig = {
-                        ...currentGb,
-                        threadingArray: newArr,
-                        threading: `${inCnt}/${outCnt}`,
-                      };
-                      const newGuideBars = { ...currentGuideBars, [editingGbId]: updatedGb };
-                      setGuideBarsState(newGuideBars);
-                      onChangeGuideBar(editingGbId, updatedGb);
-                      scheduleRedraw(newGuideBars);
-                    }}
-                    className="px-1.5 py-0.5 bg-[#111827] hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white rounded font-mono text-[11px] font-semibold transition-colors cursor-pointer"
-                  >
-                    {chip.label}
-                  </button>
-                ))}
               </div>
 
               {/* Custom Rule Input */}
@@ -2276,6 +2293,9 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* SECTION 4: KUMAŞ GERİLİM YÜKÜ & DİNAMİK YAN AL RAPORU (RECHARTS GRAFİK BİLEŞENİ) */}
+      <FabricTensionChart pattern={pattern} onChangeMachine={onChangeMachine} />
     </div>
   );
 };

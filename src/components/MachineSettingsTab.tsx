@@ -153,12 +153,12 @@ export const MachineSettingsTab: React.FC<MachineSettingsTabProps> = ({
               <input
                 type="number"
                 min="7"
-                max="127"
+                max="299"
                 value={safety.maxAllowedNeedleNumber}
                 onChange={(e) =>
                   handleSafetyChange(
                     'maxAllowedNeedleNumber',
-                    Math.max(7, Math.min(127, parseInt(e.target.value, 10) || 18))
+                    Math.max(7, Math.min(299, parseInt(e.target.value, 10) || 18))
                   )
                 }
                 className="w-14 bg-[#111827] border border-slate-700 rounded px-1.5 py-0.5 text-center text-white font-mono font-bold focus:outline-none focus:border-blue-500 tabular-nums"
