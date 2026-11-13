@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { ActiveTab, PatternData, PatternRow, GuideBarConfig, GuideBarId, MachineProfile, SafetyConfig } from './types';
+import { ActiveTab, PatternData, PatternRow, GuideBarConfig, GuideBarId, MachineProfile, SafetyConfig, RackTensionRow } from './types';
 import { patternLibrary, defaultSafetyConfig, createThreadingArray } from './data/patternLibrary';
 import { Navbar } from './components/Navbar';
 import { MachineSettingsTab } from './components/MachineSettingsTab';
 import { SimulationTab } from './components/SimulationTab';
 import { InteractiveEditorTab } from './components/InteractiveEditorTab';
 import { AnalysisTab } from './components/AnalysisTab';
+import { PatternTableTab } from './components/PatternTableTab';
 import { LibraryTab } from './components/LibraryTab';
 import { AccessLogsTab } from './components/AccessLogsTab';
 import { ExportImportModal } from './components/ExportImportModal';
@@ -25,7 +26,7 @@ import { Check } from 'lucide-react';
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const saved = localStorage.getItem('warpknitt_active_tab');
-    if (saved && ['simulation', 'editor', 'machine', 'library', 'analysis', 'logs'].includes(saved)) {
+    if (saved && ['simulation', 'editor', 'machine', 'library', 'analysis', 'table', 'logs'].includes(saved)) {
       return saved as ActiveTab;
     }
     return 'simulation';
@@ -252,6 +253,19 @@ export default function App() {
     }));
   };
 
+  const handleUpdateTableExtras = (
+    mayDensity: string,
+    rackTensionRows: RackTensionRow[],
+    isRackManualOverride: boolean
+  ) => {
+    setCurrentPattern((prev) => ({
+      ...prev,
+      mayDensity,
+      rackTensionRows,
+      isRackManualOverride,
+    }));
+  };
+
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
     return typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false;
   });
@@ -381,6 +395,14 @@ export default function App() {
             fabricWidthCm={fabricWidthCm}
             onChangeMachine={handleUpdateMachine}
             onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
+          />
+        )}
+
+        {activeTab === 'table' && (
+          <PatternTableTab
+            pattern={currentPattern}
+            fabricWidthCm={fabricWidthCm}
+            onUpdateTableExtras={handleUpdateTableExtras}
           />
         )}
 

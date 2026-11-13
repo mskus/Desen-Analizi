@@ -64,6 +64,12 @@ export interface PatternRow {
   notation?: string; // e.g. "9-10-9-10"
 }
 
+export interface RackTensionRow {
+  id: string;
+  courseCount: string; // "Kurs numarası" (ör. 29, 2)
+  values: Partial<Record<GuideBarId, string>>; // Tarak başına rack tansiyon değeri (ör. 17500, 3000)
+}
+
 export interface PatternData {
   id: string;
   title: string;
@@ -80,7 +86,10 @@ export interface PatternData {
   authorId?: string;
   thumbnail?: string;
   updatedAt?: string;
+  mayDensity?: string;
+  rackTensionRows?: RackTensionRow[];
+  isRackManualOverride?: boolean;
 }
 
-export type ActiveTab = 'simulation' | 'editor' | 'library' | 'machine' | 'analysis' | 'logs';
+export type ActiveTab = 'simulation' | 'editor' | 'library' | 'machine' | 'analysis' | 'table' | 'logs';
 
