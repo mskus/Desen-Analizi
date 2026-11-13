@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { MachineProfile, GuideBarConfig, GuideBarId, SafetyConfig, PatternRow } from '../types';
-import { ShieldCheck, Check, Sliders, Lock } from 'lucide-react';
+import { ShieldCheck, Check, Sliders, Lock, Palette } from 'lucide-react';
 import { calculateGuideBarMetrics, GuideBarCalcBadge } from '../utils/fabricCalculator';
+import { SOFT_YARN_PALETTES, SOFT_YARN_SWATCHES } from '../utils/yarnColors';
+import { ALL_GB_IDS } from '../utils/patternTableCalc';
 
 interface MachineSettingsTabProps {
   machine: MachineProfile;
@@ -193,14 +195,54 @@ export const MachineSettingsTab: React.FC<MachineSettingsTabProps> = ({
 
       {/* 2. COMPACT GUIDE BARS (GB1 - GB6) CONFIGURATION */}
       <section className="bg-[#111827] border border-slate-800 rounded-lg p-2.5 space-y-2">
-        <div className="flex items-center gap-1.5 pb-1.5 border-b border-slate-800">
-          <Sliders className="w-4 h-4 text-blue-400 shrink-0" />
-          <h3 className="text-xs font-bold text-white">Tarak & İplik Ayarları (GB1–GB6)</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-slate-800">
+          <div className="flex items-center gap-1.5">
+            <Sliders className="w-4 h-4 text-blue-400 shrink-0" />
+            <h3 className="text-xs font-bold text-white">Tarak & İplik Ayarları (GB1–GB6)</h3>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+              <Palette className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Soft Renk Öner:</span>
+            </span>
+            {SOFT_YARN_PALETTES.map((pal) => (
+              <button
+                key={pal.id}
+                type="button"
+                onClick={() => {
+                  ALL_GB_IDS.forEach((gbId) => {
+                    if (!guideBars[gbId]) return;
+                    onChangeGuideBar(gbId, {
+                      ...guideBars[gbId],
+                      color: pal.colors[gbId],
+                    });
+                  });
+                  setCopySuccessMsg(`"${pal.name}" soft ip renk paleti uygulandı.`);
+                  setTimeout(() => setCopySuccessMsg(null), 2200);
+                }}
+                title={pal.description}
+                className="px-2 py-0.5 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 hover:border-cyan-500/70 rounded text-[11px] font-semibold text-slate-200 flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <span className="inline-flex items-center -space-x-1">
+                  {(['GB1', 'GB2', 'GB3', 'GB4'] as GuideBarId[]).map((gId) => (
+                    <span
+                      key={gId}
+                      className="w-2.5 h-2.5 rounded-full border border-[#0B0F17]"
+                      style={{ backgroundColor: pal.colors[gId] }}
+                    />
+                  ))}
+                </span>
+                <span>{pal.name}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
-          {(Object.keys(guideBars) as GuideBarId[]).map((id) => {
+          {ALL_GB_IDS.map((id) => {
             const gb = guideBars[id];
+            if (!gb) return null;
             return (
               <div
                 key={id}
@@ -210,14 +252,14 @@ export const MachineSettingsTab: React.FC<MachineSettingsTabProps> = ({
                     : 'bg-[#0B0F17]/40 border-slate-900 opacity-50'
                 }`}
               >
-                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
                   <div className="flex items-center gap-1.5">
                     <input
                       type="color"
                       value={gb.color}
                       onChange={(e) => handleGbChange(id, 'color', e.target.value)}
                       className="w-5 h-5 rounded border border-slate-700 bg-transparent cursor-pointer p-0"
-                      title="Renk"
+                      title="Özel Renk Seç"
                     />
                     <span className="font-bold text-xs text-white font-mono">{gb.id}</span>
                   </div>
@@ -231,6 +273,28 @@ export const MachineSettingsTab: React.FC<MachineSettingsTabProps> = ({
                     />
                     <span>{gb.active ? 'Aktif' : 'Pasif'}</span>
                   </label>
+                </div>
+
+                {/* Soft Önerilen İp Renkleri */}
+                <div className="flex flex-wrap items-center gap-1 pt-1.5">
+                  {SOFT_YARN_SWATCHES.map((swatch) => {
+                    const isActiveColor = gb.color?.toLowerCase() === swatch.hex.toLowerCase();
+                    return (
+                      <button
+                        key={swatch.hex}
+                        type="button"
+                        disabled={!gb.active}
+                        onClick={() => handleGbChange(id, 'color', swatch.hex)}
+                        title={`Soft Renk: ${swatch.name}`}
+                        className={`w-3.5 h-3.5 rounded-full transition-transform cursor-pointer disabled:opacity-30 ${
+                          isActiveColor
+                            ? 'ring-2 ring-white scale-110'
+                            : 'opacity-80 hover:opacity-100 hover:scale-110'
+                        }`}
+                        style={{ backgroundColor: swatch.hex }}
+                      />
+                    );
+                  })}
                 </div>
 
                 <div className="space-y-1.5 pt-2 text-xs">

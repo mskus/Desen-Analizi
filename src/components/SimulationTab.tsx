@@ -37,7 +37,13 @@ import {
   FileText,
   Layers,
   Grid,
+  Palette,
 } from 'lucide-react';
+import {
+  SOFT_YARN_PALETTES,
+  SOFT_YARN_SWATCHES,
+  hasHarshYarnColors,
+} from '../utils/yarnColors';
 
 interface SimulationTabProps {
   pattern: PatternData;
@@ -192,6 +198,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   const [isAutoZoom, setIsAutoZoom] = useState<boolean>(savedSettings.isAutoZoom ?? true);
   const [zoom, setZoom] = useState<number>(savedSettings.zoom ?? 1);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [showSoftColorPicker, setShowSoftColorPicker] = useState<boolean>(false);
   const [customCoursePitch] = useState<number>(36);
 
   const [visibleBars, setVisibleBars] = useState<Record<GuideBarId, boolean>>(
@@ -257,7 +264,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   const baseNeedlePitch = totalNeedles > 200 ? 6 : totalNeedles > 150 ? 8 : totalNeedles > 96 ? 12 : totalNeedles > 64 ? 18 : totalNeedles > 32 ? 24 : 34;
 
   const currentGuideBars = guideBarsState || pattern.guideBars;
-  const activeBars = (Object.keys(currentGuideBars) as GuideBarId[]).filter(
+  const activeBars = ALL_GB_IDS.filter(
     (id) => currentGuideBars[id]?.active
   );
 
@@ -267,7 +274,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   // Guide Bar Calculation Engine: Fabric width, needle limit, threading repeat, and report repeat counts
   const guideBarCalculations = useMemo(() => {
     const map: Partial<Record<GuideBarId, ReturnType<typeof calculateGuideBarMetrics>>> = {};
-    (Object.keys(currentGuideBars) as GuideBarId[]).forEach((id) => {
+    ALL_GB_IDS.forEach((id) => {
       const gb = currentGuideBars[id];
       if (gb) {
         map[id] = calculateGuideBarMetrics(
@@ -709,7 +716,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
           ctx.lineWidth = isEdited ? 1.4 : 0.7;
           ctx.stroke();
         } else if (isEdited) {
-          ctx.strokeStyle = '#ef4444';
+          ctx.strokeStyle = '#f87171';
           ctx.lineWidth = 1;
           ctx.stroke();
         }
@@ -2306,28 +2313,34 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
         {/* Bottom Row: Active Guide Bar Report Badges + Needle Grid (30 Needles Per Row on Desktop, Responsive on Mobile) */}
         <div className="space-y-2">
           {/* Active Guide Bar Analysis Badges Row */}
-          <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 text-xs pb-1 border-b border-slate-800/80 overflow-visible">
-            {activeBars.map((gbId) => {
-              const metrics = guideBarCalculations[gbId];
-              if (!metrics) return null;
-              const gbColor = currentGuideBars[gbId]?.color || '#3b82f6';
-              const isSelected = editingGbId === gbId;
+          <div className="space-y-1 pb-1 border-b border-slate-800/80 overflow-visible">
+            <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 text-xs overflow-visible">
+              {activeBars.map((gbId) => {
+                const metrics = guideBarCalculations[gbId];
+                if (!metrics) return null;
+                const gbColor = currentGuideBars[gbId]?.color || '#6E9AC8';
+                const isSelected = editingGbId === gbId;
 
-              return (
-                <GuideBarCalcBadge
-                  key={gbId}
-                  metrics={metrics}
-                  compact={false}
-                  barColor={gbColor}
-                  showRequiredYarn={true}
-                  onClick={() => {
-                    setEditingGbId(gbId);
-                    scheduleRedraw();
-                  }}
-                  isSelected={isSelected}
-                />
-              );
-            })}
+                return (
+                  <GuideBarCalcBadge
+                    key={gbId}
+                    metrics={metrics}
+                    compact={false}
+                    barColor={gbColor}
+                    showRequiredYarn={true}
+                    mobileLongPressInfo={true}
+                    onClick={() => {
+                      setEditingGbId(gbId);
+                      scheduleRedraw();
+                    }}
+                    isSelected={isSelected}
+                  />
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-slate-500 sm:hidden">
+              Tarak seçmek için dokunun · Bilgi ekranı için basılı tutun
+            </p>
           </div>
 
           {/* Compact 30-Needle Per Row Grid (10 cols on Mobile, 15 on Tablet, 30 on Desktop) */}
@@ -2474,19 +2487,37 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
 
           {/* Center/Right: Active Guide Bar Badge + Repeats & Zoom Controls */}
           <div className="flex flex-wrap items-center justify-between sm:justify-start gap-1.5 sm:gap-2.5">
-            {/* Active GB Badge without 'Aktif Tarak:' text label */}
-            <div
-              className="flex items-center gap-1.5 bg-[#0B0F17] px-2 sm:px-2.5 py-1 rounded-lg border border-slate-800 text-xs font-mono"
-              title="Aktif Tarak Dolu/Boş Oranı"
-            >
-              <strong className="font-bold text-xs px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700" style={{ color: currentGb?.color || '#3b82f6' }}>
-                {editingGbId}
-              </strong>
-              <span className="font-bold tabular-nums">
-                <span className="text-emerald-400">{filledNeedlesCount}</span>
-                <span className="text-slate-600 mx-0.5">/</span>
-                <span className="text-rose-400">{needleCols - filledNeedlesCount}</span>
-              </span>
+            {/* Active GB Badge + Soft Color Picker Trigger */}
+            <div className="flex items-center gap-1.5">
+              <div
+                className="flex items-center gap-1.5 bg-[#0B0F17] px-2 sm:px-2.5 py-1 rounded-lg border border-slate-800 text-xs font-mono"
+                title="Aktif Tarak Dolu/Boş Oranı"
+              >
+                <strong className="font-bold text-xs px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700" style={{ color: currentGb?.color || '#6E9AC8' }}>
+                  {editingGbId}
+                </strong>
+                <span className="font-bold tabular-nums">
+                  <span className="text-emerald-400">{filledNeedlesCount}</span>
+                  <span className="text-slate-600 mx-0.5">/</span>
+                  <span className="text-rose-400">{needleCols - filledNeedlesCount}</span>
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowSoftColorPicker((prev) => !prev)}
+                className={`px-2 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                  showSoftColorPicker
+                    ? 'bg-cyan-950/90 border-cyan-500 text-cyan-200'
+                    : hasHarshYarnColors(currentGuideBars)
+                    ? 'bg-[#0B0F17] border-amber-600/80 text-amber-200 hover:bg-slate-800'
+                    : 'bg-[#0B0F17] border-slate-800 text-slate-200 hover:bg-slate-800'
+                }`}
+                title="Göze daha yumuşak gelen soft ip renkleri öner ve uygula"
+              >
+                <Palette className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="hidden xs:inline">Soft Renk</span>
+              </button>
             </div>
 
             {/* Horizontal Repeat (Yatay) with Icon */}
@@ -2591,6 +2622,90 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Soft Yarn Color Suggestions Panel */}
+        {showSoftColorPicker && (
+          <div className="mt-2 pt-2 border-t border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2 text-xs">
+            {/* Per-Selected-Bar Soft Swatches */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-semibold text-slate-300 flex items-center gap-1">
+                <strong style={{ color: currentGb?.color || '#6E9AC8' }}>{editingGbId}</strong>
+                <span>İp Rengi:</span>
+              </span>
+              {SOFT_YARN_SWATCHES.map((sw) => {
+                const isActive = currentGb?.color?.toLowerCase() === sw.hex.toLowerCase();
+                return (
+                  <button
+                    key={sw.hex}
+                    type="button"
+                    onClick={() => {
+                      const updatedGb: GuideBarConfig = { ...currentGb, color: sw.hex };
+                      const nextMap = { ...currentGuideBars, [editingGbId]: updatedGb };
+                      setGuideBarsState(nextMap);
+                      onChangeGuideBar(editingGbId, updatedGb);
+                      scheduleRedraw(nextMap);
+                    }}
+                    title={`${editingGbId}: ${sw.name}`}
+                    className={`w-5 h-5 rounded-full border border-slate-900 cursor-pointer transition-transform ${
+                      isActive ? 'ring-2 ring-white scale-110' : 'opacity-85 hover:opacity-100 hover:scale-110'
+                    }`}
+                    style={{ backgroundColor: sw.hex }}
+                  />
+                );
+              })}
+              <input
+                type="color"
+                value={currentGb?.color || '#6E9AC8'}
+                onChange={(e) => {
+                  const updatedGb: GuideBarConfig = { ...currentGb, color: e.target.value };
+                  const nextMap = { ...currentGuideBars, [editingGbId]: updatedGb };
+                  setGuideBarsState(nextMap);
+                  onChangeGuideBar(editingGbId, updatedGb);
+                  scheduleRedraw(nextMap);
+                }}
+                className="w-6 h-5 rounded border border-slate-700 bg-transparent cursor-pointer p-0"
+                title="Özel Renk Seç"
+              />
+            </div>
+
+            {/* Full 6-Bar Harmonious Soft Palettes */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-400">Önerilen Soft Paletler:</span>
+              {SOFT_YARN_PALETTES.map((pal) => (
+                <button
+                  key={pal.id}
+                  type="button"
+                  onClick={() => {
+                    const nextMap = { ...currentGuideBars };
+                    ALL_GB_IDS.forEach((gbId) => {
+                      if (!nextMap[gbId]) return;
+                      const updated = { ...nextMap[gbId], color: pal.colors[gbId] };
+                      nextMap[gbId] = updated;
+                      onChangeGuideBar(gbId, updated);
+                    });
+                    setGuideBarsState(nextMap);
+                    scheduleRedraw(nextMap);
+                    setCopyFeedback(`"${pal.name}" soft ip renk paleti uygulandı.`);
+                    setTimeout(() => setCopyFeedback(null), 2000);
+                  }}
+                  title={pal.description}
+                  className="px-2 py-1 bg-[#0B0F17] hover:bg-slate-800 border border-slate-700 hover:border-cyan-500/70 rounded-md text-[11px] font-semibold text-slate-200 flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <span className="inline-flex items-center -space-x-1">
+                    {(['GB1', 'GB2', 'GB3', 'GB4'] as GuideBarId[]).map((gId) => (
+                      <span
+                        key={gId}
+                        className="w-2.5 h-2.5 rounded-full border border-[#0B0F17]"
+                        style={{ backgroundColor: pal.colors[gId] }}
+                      />
+                    ))}
+                  </span>
+                  <span>{pal.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* SECTION 3: SIMULATION CANVASES */}

@@ -152,6 +152,7 @@ interface GuideBarCalcBadgeProps {
   showRequiredYarn?: boolean;
   onClick?: () => void;
   isSelected?: boolean;
+  mobileLongPressInfo?: boolean;
 }
 
 export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
@@ -161,16 +162,33 @@ export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
   showRequiredYarn = true,
   onClick,
   isSelected = false,
+  mobileLongPressInfo = false,
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const didLongPressRef = useRef<boolean>(false);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const openedAtRef = useRef<number>(0);
 
-  const gbColor = barColor || '#3b82f6';
+  const gbColor = barColor || '#6E9AC8';
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => clearLongPressTimer();
+  }, []);
 
   // Outside click listener for mobile & desktop to dismiss popover
   useEffect(() => {
     if (!showTooltip) return;
     const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      if (Date.now() - openedAtRef.current < 320) return;
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setShowTooltip(false);
       }
@@ -184,23 +202,83 @@ export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
   }, [showTooltip]);
 
   return (
-    <div ref={containerRef} className="relative inline-flex items-center">
+    <div
+      ref={containerRef}
+      className="relative inline-flex items-center"
+      onPointerLeave={(e) => {
+        if (e.pointerType === 'mouse') {
+          setShowTooltip(false);
+        }
+      }}
+    >
       <button
         type="button"
-        onClick={() => {
+        onPointerDown={(e) => {
+          if (e.pointerType === 'mouse') return;
+          if (!mobileLongPressInfo && !onClick) return;
+          didLongPressRef.current = false;
+          touchStartPosRef.current = { x: e.clientX, y: e.clientY };
+          clearLongPressTimer();
+          longPressTimerRef.current = window.setTimeout(() => {
+            didLongPressRef.current = true;
+            openedAtRef.current = Date.now();
+            setShowTooltip(true);
+            try {
+              if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+                navigator.vibrate(14);
+              }
+            } catch {}
+          }, 450);
+        }}
+        onPointerMove={(e) => {
+          if (e.pointerType === 'mouse' || !touchStartPosRef.current) return;
+          const dx = Math.abs(e.clientX - touchStartPosRef.current.x);
+          const dy = Math.abs(e.clientY - touchStartPosRef.current.y);
+          if (dx > 10 || dy > 10) {
+            clearLongPressTimer();
+          }
+        }}
+        onPointerUp={() => {
+          clearLongPressTimer();
+          touchStartPosRef.current = null;
+        }}
+        onPointerCancel={() => {
+          clearLongPressTimer();
+          touchStartPosRef.current = null;
+        }}
+        onContextMenu={(e) => {
+          if (mobileLongPressInfo) e.preventDefault();
+        }}
+        onClick={(e) => {
+          if (didLongPressRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            didLongPressRef.current = false;
+            return;
+          }
           if (onClick) onClick();
           else setShowTooltip((prev) => !prev);
         }}
-        onMouseEnter={() => setShowTooltip(true)}
-        className={`px-2 sm:px-3 py-1 rounded-md text-[11px] sm:text-xs font-mono font-semibold border transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer shadow-xs tabular-nums whitespace-nowrap ${
+        onPointerEnter={(e) => {
+          if (e.pointerType === 'mouse') {
+            setShowTooltip(true);
+          }
+        }}
+        className={`px-2 sm:px-3 py-1 rounded-md text-[11px] sm:text-xs font-mono font-semibold border transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer shadow-xs tabular-nums whitespace-nowrap select-none ${
           isSelected ? 'ring-2 ring-white/90 scale-[1.02]' : 'hover:scale-[1.01]'
         }`}
         style={{
           backgroundColor: metrics.hasWarning ? '#4c0519' : isSelected ? `${gbColor}44` : `${gbColor}22`,
           borderColor: metrics.hasWarning ? '#e11d48' : isSelected ? '#ffffff' : `${gbColor}77`,
           color: metrics.hasWarning ? '#fca5a5' : '#f1f5f9',
+          WebkitTouchCallout: 'none',
+          WebkitUserSelect: 'none',
         }}
-        title={`${metrics.gbId} Tarağını Seç ve Detayları Gör`}
+        title={
+          mobileLongPressInfo
+            ? `${metrics.gbId} Tarağını Seç (Bilgi için üzerine gelin veya mobilde uzun basın)`
+            : `${metrics.gbId} Tarağını Seç ve Detayları Gör`
+        }
       >
         {metrics.hasWarning ? (
           <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0 animate-pulse" />
@@ -226,7 +304,10 @@ export const GuideBarCalcBadge: React.FC<GuideBarCalcBadgeProps> = ({
       {showTooltip && (
         <div
           className="fixed inset-0 z-40 bg-black/50 sm:hidden"
-          onClick={() => setShowTooltip(false)}
+          onClick={() => {
+            if (Date.now() - openedAtRef.current < 350) return;
+            setShowTooltip(false);
+          }}
         />
       )}
 

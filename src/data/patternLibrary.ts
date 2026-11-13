@@ -1,4 +1,5 @@
 import { PatternData, GuideBarConfig, SafetyConfig } from '../types';
+import { DEFAULT_SOFT_BAR_COLORS } from '../utils/yarnColors';
 
 export const create5In5Out = (length = 300): boolean[] => {
   return Array.from({ length }, (_, i) => (i % 10) < 5);
@@ -35,7 +36,7 @@ export const createCarpetGuideBars = (): Record<'GB1' | 'GB2' | 'GB3' | 'GB4' | 
     id: 'GB1',
     name: 'GB1 (Hav / Yüzey Bukle)',
     active: true,
-    color: '#3b82f6',
+    color: DEFAULT_SOFT_BAR_COLORS.GB1,
     yarnType: 'Polyester',
     dtex: 167,
     threading: 'Full',
@@ -46,7 +47,7 @@ export const createCarpetGuideBars = (): Record<'GB1' | 'GB2' | 'GB3' | 'GB4' | 
     id: 'GB2',
     name: 'GB2 (Ara Desen / Hav Dolgu)',
     active: true,
-    color: '#ec4899',
+    color: DEFAULT_SOFT_BAR_COLORS.GB2,
     yarnType: 'Naylon',
     dtex: 110,
     threading: '1-in 1-out',
@@ -57,7 +58,7 @@ export const createCarpetGuideBars = (): Record<'GB1' | 'GB2' | 'GB3' | 'GB4' | 
     id: 'GB3',
     name: 'GB3 (5 Dolu 5 Boş - Rölyef Hav)',
     active: true,
-    color: '#10b981',
+    color: DEFAULT_SOFT_BAR_COLORS.GB3,
     yarnType: 'Polyester',
     dtex: 220,
     threading: '5 Dolu 5 Boş (5-in 5-out)',
@@ -68,7 +69,7 @@ export const createCarpetGuideBars = (): Record<'GB1' | 'GB2' | 'GB3' | 'GB4' | 
     id: 'GB4',
     name: 'GB4 (Atkı / Enine Bağlantı)',
     active: true,
-    color: '#f59e0b',
+    color: DEFAULT_SOFT_BAR_COLORS.GB4,
     yarnType: 'Polyester',
     dtex: 150,
     threading: 'Full',
@@ -79,7 +80,7 @@ export const createCarpetGuideBars = (): Record<'GB1' | 'GB2' | 'GB3' | 'GB4' | 
     id: 'GB5',
     name: 'GB5 (Zemin Tarağı - Arka Taban 1 - Full)',
     active: true,
-    color: '#8b5cf6',
+    color: DEFAULT_SOFT_BAR_COLORS.GB5,
     yarnType: 'Polyester',
     dtex: 280,
     threading: 'Full',
@@ -90,7 +91,7 @@ export const createCarpetGuideBars = (): Record<'GB1' | 'GB2' | 'GB3' | 'GB4' | 
     id: 'GB6',
     name: 'GB6 (Zemin Tarağı - Arka Taban 2 - Full)',
     active: true,
-    color: '#06b6d4',
+    color: DEFAULT_SOFT_BAR_COLORS.GB6,
     yarnType: 'Naylon',
     dtex: 280,
     threading: 'Full',

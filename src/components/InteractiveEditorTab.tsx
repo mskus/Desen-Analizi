@@ -25,6 +25,7 @@ import {
   Hand,
 } from 'lucide-react';
 import { calculateGuideBarMetrics, GuideBarCalcBadge } from '../utils/fabricCalculator';
+import { ALL_GB_IDS } from '../utils/patternTableCalc';
 
 interface InteractiveEditorTabProps {
   pattern: PatternData;
@@ -339,8 +340,8 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   const needlePitch = needleCols > 64 ? 18 : needleCols > 32 ? 26 : 38;
   const coursePitch = 46;
 
-  const activeBars = (Object.keys(pattern.guideBars) as GuideBarId[]).filter(
-    (id) => pattern.guideBars[id].active
+  const activeBars = ALL_GB_IDS.filter(
+    (id) => pattern.guideBars[id]?.active
   );
 
   // Guide Bar Calculation Engine: Fabric width, needle limit, threading repeat, and report repeat counts
