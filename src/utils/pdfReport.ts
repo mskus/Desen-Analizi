@@ -1,8 +1,8 @@
-import { jsPDF } from 'jspdf';
 import { GuideBarConfig, GuideBarId, PatternData, PatternRow, RackTensionRow } from '../types';
 import { GuideBarCalculationResult } from './fabricCalculator';
 import {
   ALL_GB_IDS,
+  applyManualTableOverrides,
   buildExpandedFourStepRows,
   computePatternDifficulty,
   loadPatternTableExtras,
@@ -178,7 +178,7 @@ function drawPageFooter(
 /**
  * Build a multi-page A4 high-resolution PDF Blob from simulation/diagram + metadata + rack + 4-step table.
  */
-export function buildHighResPatternPdf(params: PdfReportParams): Blob {
+export async function buildHighResPatternPdf(params: PdfReportParams): Promise<Blob> {
   const {
     sourceCanvas,
     reportKindLabel,
@@ -194,14 +194,17 @@ export function buildHighResPatternPdf(params: PdfReportParams): Blob {
   const activeGbList: GuideBarId[] = activeBars.length > 0 ? activeBars : ALL_GB_IDS;
 
   const tableSettings = loadSavedTableSettings();
-  const expandedRows = buildExpandedFourStepRows(
-    rows,
-    tableSettings.barModes,
-    tableSettings.loopWidth,
-    tableSettings.skipBehavior
-  );
-
   const tableExtras = loadPatternTableExtras(pattern);
+  const expandedRows = applyManualTableOverrides(
+    buildExpandedFourStepRows(
+      rows,
+      tableSettings.barModes,
+      tableSettings.loopWidth,
+      tableSettings.skipBehavior,
+      tableSettings.descendingStartMode
+    ),
+    tableExtras.manualTableOverrides
+  );
   const mayDensity = (pattern.mayDensity ?? tableExtras.mayDensity ?? '').trim();
   const mayDisplay = mayDensity !== '' ? `${mayDensity.replace('.', ',')} May` : 'Belirtilmedi';
 
@@ -769,6 +772,7 @@ export function buildHighResPatternPdf(params: PdfReportParams): Blob {
     .toString()
     .padStart(2, '0')}`;
 
+  const { jsPDF } = await import('jspdf');
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',

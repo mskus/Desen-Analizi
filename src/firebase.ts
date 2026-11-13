@@ -1,18 +1,49 @@
 import { initializeApp } from 'firebase/app';
-import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  memoryLocalCache,
+  setLogLevel,
+  doc,
+  getDocFromServer,
+} from 'firebase/firestore';
 import firebaseConfig from './firebaseConfig';
+
+// Silence noisy @firebase/firestore internal transport retry logs on mobile/proxy networks
+setLogLevel('silent');
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with custom Database ID (MANDATORY in AI Studio) and auto long-polling for iframe stability
-export const db = initializeFirestore(
-  app,
-  {
-    experimentalAutoDetectLongPolling: true,
-  },
-  firebaseConfig.firestoreDatabaseId
-);
+// Initialize Firestore with custom Database ID, persistent offline cache, and reliable long-polling
+function createFirestoreInstance() {
+  try {
+    return initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+        ignoreUndefinedProperties: true,
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+      },
+      firebaseConfig.firestoreDatabaseId
+    );
+  } catch {
+    return initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+        ignoreUndefinedProperties: true,
+        localCache: memoryLocalCache(),
+      },
+      firebaseConfig.firestoreDatabaseId
+    );
+  }
+}
+
+export const db = createFirestoreInstance();
 
 // Firestore Error Handling Standard as per Firebase Skill
 export enum OperationType {
@@ -58,20 +89,19 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   console.warn('Firestore Operation Notice: ', JSON.stringify(errInfo));
 }
 
-// Test Connection at initial boot with fallback to prevent backend reachability timeout errors
+// Non-blocking boot connection check with offline guard
 export async function testConnection() {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return;
+  }
   try {
-    // Race with a 3-second timeout so app boot is never blocked or throws network warnings
     const connectionCheck = getDocFromServer(doc(db, 'test', 'connection'));
     const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Connection check timeout')), 3000)
+      setTimeout(() => reject(new Error('Connection check timeout')), 2500)
     );
     await Promise.race([connectionCheck, timeout]);
-  } catch (error) {
-    // Quietly handle connection delay / offline state
-    if (error instanceof Error && (error.message.includes('client is offline') || error.message.includes('timeout') || error.message.includes('reach Cloud Firestore'))) {
-      console.info('Firestore çevrimdışı/beklemede çalışıyor.');
-    }
+  } catch {
+    // Offline cache keeps the app working seamlessly when backend is temporarily unreachable
   }
 }
 

@@ -7,6 +7,7 @@ import {
   loadSavedTableSettings,
   loadPatternTableExtras,
   computePatternDifficulty,
+  applyManualTableOverrides,
 } from '../utils/patternTableCalc';
 import { buildHighResPatternPdf, getTrimmedSourceBounds } from '../utils/pdfReport';
 import {
@@ -107,6 +108,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   // Mouse / Touch Drag-Select for Batch Needle Toggle
   const isMouseDownRef = useRef<boolean>(false);
   const dragTargetValRef = useRef<boolean>(true);
+  const lastDragIdxRef = useRef<number | null>(null);
 
   const toggleSimFullscreen = () => {
     if (onToggleFullscreen) {
@@ -211,35 +213,34 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   const [containerWidth, setContainerWidth] = useState<number>(1200);
 
   useEffect(() => {
+    let rafId = 0;
     const updateWidth = () => {
-      const parent = fabricContainerRef.current || techContainerRef.current || simWrapperRef.current;
-      if (parent) {
-        const w = parent.clientWidth;
-        if (w > 0) {
-          setContainerWidth(Math.max(600, w - 8));
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const parent = fabricContainerRef.current || techContainerRef.current || simWrapperRef.current;
+        if (parent) {
+          const w = parent.clientWidth;
+          if (w > 0) {
+            const nextWidth = Math.max(360, w - 8);
+            setContainerWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+          }
         }
-      }
+      });
     };
     updateWidth();
 
-    // Use ResizeObserver for instant responsive width on tab switch / layout shifts
     let ro: ResizeObserver | null = null;
     const target = simWrapperRef.current;
     if (typeof ResizeObserver !== 'undefined' && target) {
-      ro = new ResizeObserver(() => {
-        updateWidth();
-      });
+      ro = new ResizeObserver(updateWidth);
       ro.observe(target);
     }
 
-    const t1 = setTimeout(updateWidth, 30);
-    const t2 = setTimeout(updateWidth, 120);
-    const t3 = setTimeout(updateWidth, 300);
+    const t1 = setTimeout(updateWidth, 80);
     window.addEventListener('resize', updateWidth);
     return () => {
+      cancelAnimationFrame(rafId);
       clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
       if (ro) ro.disconnect();
       window.removeEventListener('resize', updateWidth);
     };
@@ -431,14 +432,17 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
   };
 
   useEffect(() => {
-    const handleMouseUp = () => {
+    const handlePointerEnd = () => {
       isMouseDownRef.current = false;
+      lastDragIdxRef.current = null;
     };
-    window.addEventListener('mouseup', handleMouseUp);
-    window.addEventListener('pointerup', handleMouseUp);
+    window.addEventListener('mouseup', handlePointerEnd);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
     return () => {
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('pointerup', handleMouseUp);
+      window.removeEventListener('mouseup', handlePointerEnd);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
     };
   }, []);
 
@@ -1339,14 +1343,17 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       activeBars.length > 0 ? activeBars : ALL_GB_IDS;
 
     const tableSettings = loadSavedTableSettings();
-    const expandedRows = buildExpandedFourStepRows(
-      rows,
-      tableSettings.barModes,
-      tableSettings.loopWidth,
-      tableSettings.skipBehavior
-    );
-
     const tableExtras = loadPatternTableExtras(pattern);
+    const expandedRows = applyManualTableOverrides(
+      buildExpandedFourStepRows(
+        rows,
+        tableSettings.barModes,
+        tableSettings.loopWidth,
+        tableSettings.skipBehavior,
+        tableSettings.descendingStartMode
+      ),
+      tableExtras.manualTableOverrides
+    );
     const mayDensity = (pattern.mayDensity ?? tableExtras.mayDensity ?? '').trim();
     const mayDisplay = mayDensity !== '' ? `${mayDensity.replace('.', ',')} May` : 'Belirtilmedi';
     const rawRackRows =
@@ -1979,7 +1986,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     try {
-      const pdfBlob = buildHighResPatternPdf({
+      const pdfBlob = await buildHighResPatternPdf({
         sourceCanvas,
         fileName,
         reportKindLabel,
@@ -2338,21 +2345,23 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               return (
                 <div key={rowIndex} className="flex items-center gap-1 sm:gap-1.5">
                   <div
-                    className="grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-[repeat(30,minmax(0,1fr))] gap-0.5 flex-1 min-w-0"
-                    onTouchMove={(e) => {
-                      if (!isMouseDownRef.current || e.touches.length === 0) return;
-                      const touch = e.touches[0];
-                      const elem = document.elementFromPoint(touch.clientX, touch.clientY);
-                      if (elem) {
-                        const needleBtn = elem.closest('[data-needle-idx]');
-                        if (needleBtn) {
-                          const idx = parseInt(
-                            needleBtn.getAttribute('data-needle-idx') || '-1',
-                            10
-                          );
-                          if (idx >= 0 && idx < needleCols) {
-                            handleSetNeedleBatch([idx], dragTargetValRef.current);
-                          }
+                    className="grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-[repeat(30,minmax(0,1fr))] gap-0.5 flex-1 min-w-0 touch-none"
+                    onPointerMove={(e) => {
+                      if (!isMouseDownRef.current) return;
+                      const elem = document.elementFromPoint(e.clientX, e.clientY);
+                      const needleBtn = elem?.closest('[data-needle-idx]');
+                      if (needleBtn) {
+                        const idx = parseInt(
+                          needleBtn.getAttribute('data-needle-idx') || '-1',
+                          10
+                        );
+                        if (
+                          idx >= 0 &&
+                          idx < needleCols &&
+                          lastDragIdxRef.current !== idx
+                        ) {
+                          lastDragIdxRef.current = idx;
+                          handleSetNeedleBatch([idx], dragTargetValRef.current);
                         }
                       }
                     }}
@@ -2365,25 +2374,29 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                           key={nIdx}
                           data-needle-idx={nIdx}
                           type="button"
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.preventDefault();
+                            try {
+                              if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+                                e.currentTarget.releasePointerCapture(e.pointerId);
+                              }
+                            } catch {}
                             isMouseDownRef.current = true;
+                            lastDragIdxRef.current = nIdx;
                             const nextVal = !isThreaded;
                             dragTargetValRef.current = nextVal;
                             handleSetNeedleBatch([nIdx], nextVal);
                           }}
-                          onMouseEnter={() => {
-                            if (isMouseDownRef.current) {
+                          onPointerEnter={() => {
+                            if (
+                              isMouseDownRef.current &&
+                              lastDragIdxRef.current !== nIdx
+                            ) {
+                              lastDragIdxRef.current = nIdx;
                               handleSetNeedleBatch([nIdx], dragTargetValRef.current);
                             }
                           }}
-                          onTouchStart={() => {
-                            isMouseDownRef.current = true;
-                            const nextVal = !isThreaded;
-                            dragTargetValRef.current = nextVal;
-                            handleSetNeedleBatch([nIdx], nextVal);
-                          }}
-                          className={`h-6.5 flex items-center justify-center rounded-xs border text-[11px] font-mono font-bold transition-colors cursor-pointer select-none tabular-nums ${
+                          className={`h-8 sm:h-6.5 flex items-center justify-center rounded-xs border text-xs sm:text-[11px] font-mono font-bold transition-colors cursor-pointer select-none touch-none tabular-nums ${
                             isThreaded
                               ? 'border-transparent text-white font-black shadow-xs'
                               : 'bg-[#111827] border-slate-800/90 text-slate-500 hover:border-slate-700 hover:text-slate-300'
@@ -2399,7 +2412,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                     })}
                   </div>
                   <div
-                    className="h-6.5 px-1.5 sm:px-2 flex items-center justify-center gap-0.5 sm:gap-1 rounded border border-slate-800 bg-[#111827] text-[11px] sm:text-xs font-mono font-bold whitespace-nowrap shrink-0 tabular-nums shadow-xs self-start lg:self-center"
+                    className="h-8 sm:h-6.5 px-1.5 sm:px-2 flex items-center justify-center gap-0.5 sm:gap-1 rounded border border-slate-800 bg-[#111827] text-[11px] sm:text-xs font-mono font-bold whitespace-nowrap shrink-0 tabular-nums shadow-xs self-start lg:self-center"
                     title={`Satır ${rowIndex + 1}: ${rowFilled} Dolu / ${rowEmpty} Boş`}
                   >
                     <span className="text-emerald-400">{rowFilled}</span>
@@ -2655,7 +2668,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                 }
               }}
               className={`px-1 py-1 overflow-auto bg-[#070b14] flex justify-center touch-pan-x touch-pan-y ${
-                isFullscreen || externalFs ? 'h-[calc(100vh-130px)] max-h-none' : 'max-h-[750px]'
+                isFullscreen || externalFs ? 'h-[calc(100vh-130px)] max-h-none' : 'max-h-[62vh] sm:max-h-[750px]'
               }`}
             >
               <div
@@ -2824,7 +2837,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                 }
               }}
               className={`px-1 py-1 overflow-auto bg-[#05070d] flex justify-center touch-pan-x touch-pan-y ${
-                isFullscreen || externalFs ? 'h-[calc(100vh-130px)] max-h-none' : 'max-h-[750px]'
+                isFullscreen || externalFs ? 'h-[calc(100vh-130px)] max-h-none' : 'max-h-[62vh] sm:max-h-[750px]'
               }`}
             >
               <div

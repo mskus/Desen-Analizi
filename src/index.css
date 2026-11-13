@@ -1,16 +1,37 @@
 @import "tailwindcss";
 
 @layer base {
+  html, body {
+    overscroll-behavior-y: contain;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     background-color: #0B0F17;
     color: #F1F5F9;
   }
 
+  button,
+  select,
+  input,
+  a,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+
   code, pre, .font-mono, input[type="number"] {
     font-family: 'JetBrains Mono', monospace;
     font-variant-numeric: tabular-nums;
   }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .tabular-nums {

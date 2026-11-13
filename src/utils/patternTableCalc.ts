@@ -2,6 +2,7 @@ import { GuideBarId, PatternData, RackTensionRow } from '../types';
 
 export type StitchLoopMode = 'double_bed' | 'front_bed' | 'back_bed' | 'inlay';
 export type SkipBehaviorMode = 'front_skip' | 'back_skip' | 'full_skip';
+export type DescendingStartMode = 'low_first' | 'high_first';
 
 export const ALL_GB_IDS: GuideBarId[] = ['GB1', 'GB2', 'GB3', 'GB4', 'GB5', 'GB6'];
 
@@ -36,6 +37,7 @@ export interface TableCalcSettings {
   barModes: Record<GuideBarId, StitchLoopMode>;
   skipBehavior: SkipBehaviorMode;
   loopWidth: number;
+  descendingStartMode: DescendingStartMode;
 }
 
 const TABLE_SETTINGS_STORAGE_KEY = 'warpknitt_table_settings';
@@ -54,6 +56,8 @@ export function loadSavedTableSettings(): TableCalcSettings {
             ? parsed.skipBehavior
             : 'front_skip',
         loopWidth: parsed.loopWidth === 2 ? 2 : 1,
+        descendingStartMode:
+          parsed.descendingStartMode === 'high_first' ? 'high_first' : 'low_first',
       };
     }
   } catch {
@@ -63,6 +67,7 @@ export function loadSavedTableSettings(): TableCalcSettings {
     barModes: { ...DEFAULT_HRD6_MODES },
     skipBehavior: 'front_skip',
     loopWidth: 1,
+    descendingStartMode: 'low_first',
   };
 }
 
@@ -88,7 +93,8 @@ export function computeGuideBarFourStepSeries(
   skips: boolean[],
   mode: StitchLoopMode,
   loopWidth: number,
-  skipBehavior: SkipBehaviorMode
+  skipBehavior: SkipBehaviorMode,
+  descendingStartMode: DescendingStartMode = 'low_first'
 ): Array<[number, number, number, number]> {
   const result: Array<[number, number, number, number]> = [];
   if (values.length === 0) return result;
@@ -120,8 +126,13 @@ export function computeGuideBarFourStepSeries(
       a = low;
       b = high;
     } else if (n < prevN) {
-      a = high;
-      b = low;
+      if (descendingStartMode === 'high_first') {
+        a = high;
+        b = low;
+      } else {
+        a = low;
+        b = high;
+      }
     } else {
       if (prevEnd >= high) {
         a = high;
@@ -170,7 +181,8 @@ export function buildExpandedFourStepRows(
   rows: PatternData['rows'],
   barModes: Record<GuideBarId, StitchLoopMode>,
   loopWidth: number,
-  skipBehavior: SkipBehaviorMode
+  skipBehavior: SkipBehaviorMode,
+  descendingStartMode: DescendingStartMode = 'low_first'
 ): ComputedStepRow[] {
   if (!rows || rows.length === 0) return [];
 
@@ -180,42 +192,48 @@ export function buildExpandedFourStepRows(
       rows.map((r) => Boolean(r.skips?.GB1)),
       barModes.GB1,
       loopWidth,
-      skipBehavior
+      skipBehavior,
+      descendingStartMode
     ),
     GB2: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB2 ?? 0),
       rows.map((r) => Boolean(r.skips?.GB2)),
       barModes.GB2,
       loopWidth,
-      skipBehavior
+      skipBehavior,
+      descendingStartMode
     ),
     GB3: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB3 ?? 0),
       rows.map((r) => Boolean(r.skips?.GB3)),
       barModes.GB3,
       loopWidth,
-      skipBehavior
+      skipBehavior,
+      descendingStartMode
     ),
     GB4: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB4 ?? 0),
       rows.map((r) => Boolean(r.skips?.GB4)),
       barModes.GB4,
       loopWidth,
-      skipBehavior
+      skipBehavior,
+      descendingStartMode
     ),
     GB5: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB5 ?? 0),
       rows.map((r) => Boolean(r.skips?.GB5)),
       barModes.GB5,
       loopWidth,
-      skipBehavior
+      skipBehavior,
+      descendingStartMode
     ),
     GB6: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB6 ?? 0),
       rows.map((r) => Boolean(r.skips?.GB6)),
       barModes.GB6,
       loopWidth,
-      skipBehavior
+      skipBehavior,
+      descendingStartMode
     ),
   };
 
@@ -258,6 +276,26 @@ export interface PatternTableExtras {
   mayDensity: string;
   rackTensionRows: RackTensionRow[];
   isRackManualOverride: boolean;
+  manualTableOverrides?: Record<string, number>;
+}
+
+export function applyManualTableOverrides(
+  expandedRows: ComputedStepRow[],
+  overrides?: Record<string, number>
+): ComputedStepRow[] {
+  if (!overrides || Object.keys(overrides).length === 0) return expandedRows;
+  return expandedRows.map((item) => {
+    let nextValues: Record<GuideBarId, number> | null = null;
+    ALL_GB_IDS.forEach((gbId) => {
+      const key = `${item.courseIndex}-${item.stepInCourse}-${gbId}`;
+      const val = overrides[key];
+      if (typeof val === 'number' && !isNaN(val)) {
+        if (!nextValues) nextValues = { ...item.values };
+        nextValues[gbId] = val;
+      }
+    });
+    return nextValues ? { ...item, values: nextValues } : item;
+  });
 }
 
 const TABLE_EXTRAS_STORAGE_PREFIX = 'warpknitt_table_extras_';
@@ -351,6 +389,10 @@ export function loadPatternTableExtras(pattern: PatternData): PatternTableExtras
           isManual && Array.isArray(parsed.rackTensionRows) && parsed.rackTensionRows.length > 0
             ? parsed.rackTensionRows
             : autoRows,
+        manualTableOverrides:
+          parsed.manualTableOverrides && typeof parsed.manualTableOverrides === 'object'
+            ? parsed.manualTableOverrides
+            : {},
       };
     }
   } catch {
@@ -365,6 +407,7 @@ export function loadPatternTableExtras(pattern: PatternData): PatternTableExtras
       isPatternManual && Array.isArray(pattern.rackTensionRows) && pattern.rackTensionRows.length > 0
         ? pattern.rackTensionRows
         : autoRows,
+    manualTableOverrides: {},
   };
 }
 

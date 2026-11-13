@@ -14,6 +14,8 @@ import {
   SlidersHorizontal,
   Sparkles,
   Lock,
+  ArrowDownUp,
+  Edit3,
 } from 'lucide-react';
 import {
   ALL_GB_IDS,
@@ -21,8 +23,10 @@ import {
   DEFAULT_HRD6_MODES,
   StitchLoopMode,
   SkipBehaviorMode,
+  DescendingStartMode,
   ComputedStepRow,
   buildExpandedFourStepRows,
+  applyManualTableOverrides,
   loadSavedTableSettings,
   saveTableSettings,
   loadPatternTableExtras,
@@ -67,11 +71,14 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   const [barModes, setBarModes] = useState<Record<GuideBarId, StitchLoopMode>>(initialSettings.barModes);
   const [skipBehavior, setSkipBehavior] = useState<SkipBehaviorMode>(initialSettings.skipBehavior);
   const [loopWidth, setLoopWidth] = useState<number>(initialSettings.loopWidth);
+  const [descendingStartMode, setDescendingStartMode] = useState<DescendingStartMode>(
+    initialSettings.descendingStartMode
+  );
   const [showAllBars, setShowAllBars] = useState<boolean>(false);
   const [selectedCourse, setSelectedCourse] = useState<number | null>(1);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
-  // Manual Kumaş Sıklığı (May) & Rack Tansiyon Tablosu (Auto from skips unless manually edited)
+  // Manual Kumaş Sıklığı (May), Rack Tansiyon Tablosu & Manual 4-Step Cell Overrides
   const initialExtras = useMemo(() => loadPatternTableExtras(pattern), [pattern.id]);
   const [mayDensity, setMayDensity] = useState<string>(initialExtras.mayDensity);
   const [rackTensionRows, setRackTensionRows] = useState<RackTensionRow[]>(
@@ -80,6 +87,10 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   const [isRackManualOverride, setIsRackManualOverride] = useState<boolean>(
     initialExtras.isRackManualOverride
   );
+  const [manualTableOverrides, setManualTableOverrides] = useState<Record<string, number>>(
+    initialExtras.manualTableOverrides || {}
+  );
+  const [editingCell, setEditingCell] = useState<{ key: string; text: string } | null>(null);
   const lastLoadedPatternIdRef = useRef<string>(pattern.id);
 
   // Reload when pattern changes
@@ -90,6 +101,8 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
       setMayDensity(next.mayDensity);
       setRackTensionRows(next.rackTensionRows);
       setIsRackManualOverride(next.isRackManualOverride);
+      setManualTableOverrides(next.manualTableOverrides || {});
+      setEditingCell(null);
     }
   }, [pattern]);
 
@@ -102,18 +115,20 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   }, [pattern.rows, pattern.guideBars, isRackManualOverride]);
 
   useEffect(() => {
-    saveTableSettings({ barModes, skipBehavior, loopWidth });
-  }, [barModes, skipBehavior, loopWidth]);
+    saveTableSettings({ barModes, skipBehavior, loopWidth, descendingStartMode });
+  }, [barModes, skipBehavior, loopWidth, descendingStartMode]);
 
   const persistExtras = (
     nextMay: string,
     nextRackRows: RackTensionRow[],
-    nextManualOverride: boolean
+    nextManualOverride: boolean,
+    nextTableOverrides: Record<string, number> = manualTableOverrides
   ) => {
     savePatternTableExtras(pattern.id, {
       mayDensity: nextMay,
       rackTensionRows: nextRackRows,
       isRackManualOverride: nextManualOverride,
+      manualTableOverrides: nextTableOverrides,
     });
     onUpdateTableExtras?.(nextMay, nextRackRows, nextManualOverride);
   };
@@ -241,12 +256,45 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
 
   // Expand every course row into 4 machine step rows without changing pattern
   const expandedRows = useMemo<ComputedStepRow[]>(() => {
-    return buildExpandedFourStepRows(rows, barModes, loopWidth, skipBehavior);
-  }, [rows, barModes, loopWidth, skipBehavior]);
+    return buildExpandedFourStepRows(rows, barModes, loopWidth, skipBehavior, descendingStartMode);
+  }, [rows, barModes, loopWidth, skipBehavior, descendingStartMode]);
+
+  const finalExpandedRows = useMemo<ComputedStepRow[]>(() => {
+    return applyManualTableOverrides(expandedRows, manualTableOverrides);
+  }, [expandedRows, manualTableOverrides]);
+
+  const manualEditCount = Object.keys(manualTableOverrides).length;
+
+  const commitTableCellEdit = (cellKey: string, rawText: string) => {
+    const trimmed = rawText.trim();
+    const nextOverrides = { ...manualTableOverrides };
+    if (trimmed === '') {
+      if (cellKey in nextOverrides) {
+        delete nextOverrides[cellKey];
+        setManualTableOverrides(nextOverrides);
+        persistExtras(mayDensity, rackTensionRows, isRackManualOverride, nextOverrides);
+      }
+      setEditingCell(null);
+      return;
+    }
+    if (/^-?\d+$/.test(trimmed)) {
+      const parsed = parseInt(trimmed, 10);
+      nextOverrides[cellKey] = parsed;
+      setManualTableOverrides(nextOverrides);
+      persistExtras(mayDensity, rackTensionRows, isRackManualOverride, nextOverrides);
+    }
+    setEditingCell(null);
+  };
+
+  const handleResetManualTableOverrides = () => {
+    setManualTableOverrides({});
+    setEditingCell(null);
+    persistExtras(mayDensity, rackTensionRows, isRackManualOverride, {});
+  };
 
   const handleExportCsv = () => {
     const header = ['Kurs', 'Adim', ...displayBars].join(',');
-    const lines = expandedRows.map((item) => {
+    const lines = finalExpandedRows.map((item) => {
       const courseLabel = item.stepInCourse === 1 ? String(item.courseIndex) : '';
       return [
         courseLabel,
@@ -268,7 +316,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
 
   const handleCopyTable = async () => {
     const header = ['Kurs', ...displayBars].join('\t');
-    const lines = expandedRows.map((item) => {
+    const lines = finalExpandedRows.map((item) => {
       const courseLabel = item.stepInCourse === 1 ? String(item.courseIndex) : '';
       return [courseLabel, ...displayBars.map((gb) => String(item.values[gb]))].join('\t');
     });
@@ -402,7 +450,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
               ))}
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] text-slate-400 font-semibold">İlmek Adımı:</span>
               {[1, 2].map((w) => (
                 <button
@@ -418,12 +466,36 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                   +{w} İğne
                 </button>
               ))}
+
+              <button
+                type="button"
+                onClick={() =>
+                  setDescendingStartMode((prev) =>
+                    prev === 'low_first' ? 'high_first' : 'low_first'
+                  )
+                }
+                title="İlmek yüksekten aşağı düşerken başlangıç yönünü değiştir"
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer transition-colors flex items-center gap-1 ${
+                  descendingStartMode === 'low_first'
+                    ? 'bg-cyan-950/80 text-cyan-200 border-cyan-700 hover:bg-cyan-900/80'
+                    : 'bg-indigo-950/80 text-indigo-200 border-indigo-700 hover:bg-indigo-900/80'
+                }`}
+              >
+                <ArrowDownUp className="w-3 h-3 shrink-0" />
+                <span>
+                  {descendingStartMode === 'low_first'
+                    ? 'Düşüş: Düşükten'
+                    : 'Düşüş: Yüksekten'}
+                </span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
                   setBarModes({ ...DEFAULT_HRD6_MODES });
                   setSkipBehavior('front_skip');
                   setLoopWidth(1);
+                  setDescendingStartMode('low_first');
                 }}
                 className="p-1 bg-[#0B0F17] hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-700 rounded cursor-pointer"
                 title="Varsayılana Sıfırla"
@@ -490,7 +562,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
         <section className="xl:col-span-7 rounded-xl border overflow-hidden shadow-2xl bg-[#0B0F17] border-slate-800">
           {/* Table Status Bar */}
           <div className="px-3 py-2 border-b flex flex-wrap items-center justify-between gap-2 text-xs bg-[#0F172A] border-slate-800 text-slate-200">
-            <div className="flex items-center gap-2 font-semibold">
+            <div className="flex flex-wrap items-center gap-2 font-semibold">
               <span className="text-sky-400 font-bold">
                 Çalışma Düzeni: 4 Adımlı Makine Desen Zinciri
               </span>
@@ -498,6 +570,21 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
               <span className="font-mono text-[11px]">
                 {pattern.title} ({rows.length} Kurs)
               </span>
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-800/80 text-slate-300 border border-slate-700">
+                <Edit3 className="w-2.5 h-2.5 text-cyan-400" />
+                <span>Hücreye tıklayıp elle düzenleyebilirsiniz</span>
+              </span>
+              {manualEditCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleResetManualTableOverrides}
+                  title="Elle değiştirilen hücreleri temizleyip otomatik hesaba dön"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 hover:bg-amber-900/90 text-amber-200 border border-amber-700 cursor-pointer transition-colors"
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                  <span>Otomatiğe Dön ({manualEditCount})</span>
+                </button>
+              )}
             </div>
 
             {selectedCourseSource && (
@@ -559,7 +646,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
               </thead>
 
               <tbody>
-                {expandedRows.map((item) => {
+                {finalExpandedRows.map((item) => {
                   const isCourseStart = item.stepInCourse === 1;
                   const isCourseEnd = item.stepInCourse === 4;
                   const isSelectedCourse = selectedCourse === item.courseIndex;
@@ -591,7 +678,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                       onClick={() => setSelectedCourse(item.courseIndex)}
                       className={`${rowBgClass} ${rowTextClass} ${borderBottomClass} cursor-pointer transition-colors hover:brightness-105`}
                     >
-                      <td className={`py-1.5 px-2 sm:px-3 ${cellBorderRight}`}>
+                      <td className={`py-1 px-2 sm:px-3 ${cellBorderRight}`}>
                         {isCourseStart ? (
                           <span className="inline-block font-bold text-sky-400">
                             {item.courseIndex}
@@ -605,26 +692,71 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
 
                       {displayBars.map((gbId) => {
                         const val = item.values[gbId];
+                        const cellKey = `${item.courseIndex}-${item.stepInCourse}-${gbId}`;
+                        const isManuallyEdited = typeof manualTableOverrides[cellKey] === 'number';
+                        const isEditingThis = editingCell?.key === cellKey;
                         const isSkipped = Boolean(item.skippedBars[gbId]);
                         const gbColor = pattern.guideBars[gbId]?.color || '#3b82f6';
 
-                        const skipCellClass = isSkipped
+                        const cellStateClass = isManuallyEdited
+                          ? 'bg-cyan-950/55 text-cyan-200 font-bold'
+                          : isSkipped
                           ? 'bg-amber-950/45 text-amber-300 font-bold'
                           : '';
 
                         return (
                           <td
                             key={gbId}
-                            className={`py-1.5 px-2 sm:px-4 ${cellBorderRight} ${skipCellClass}`}
-                            style={!isSkipped ? { color: isCourseStart ? gbColor : undefined } : undefined}
+                            className={`p-0.5 sm:px-2 ${cellBorderRight} ${cellStateClass}`}
                             title={`Kurs ${item.courseIndex} · Adım ${item.stepInCourse} · ${gbId}: ${val}${
-                              isSkipped ? ' (ATLAMA AKTİF)' : ''
+                              isManuallyEdited ? ' (ELLE DÜZENLENDİ)' : isSkipped ? ' (ATLAMA AKTİF)' : ''
                             }`}
                           >
-                            <div className="inline-flex items-center justify-center gap-1">
-                              <span>{val}</span>
+                            <div className="inline-flex items-center justify-center gap-1 w-full">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={isEditingThis ? editingCell.text : String(val)}
+                                onFocus={(e) => {
+                                  setSelectedCourse(item.courseIndex);
+                                  setEditingCell({ key: cellKey, text: String(val) });
+                                  e.target.select();
+                                }}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  if (raw === '' || raw === '-' || /^-?\d+$/.test(raw)) {
+                                    setEditingCell({ key: cellKey, text: raw });
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (isEditingThis && editingCell) {
+                                    commitTableCellEdit(cellKey, editingCell.text);
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    (e.target as HTMLInputElement).blur();
+                                  } else if (e.key === 'Escape') {
+                                    setEditingCell(null);
+                                    (e.target as HTMLInputElement).blur();
+                                  }
+                                }}
+                                aria-label={`Kurs ${item.courseIndex} Adım ${item.stepInCourse} ${gbId}`}
+                                className={`w-12 sm:w-14 text-center font-mono text-xs sm:text-sm py-1 px-1 rounded transition-colors focus:outline-none tabular-nums ${
+                                  isEditingThis
+                                    ? 'bg-[#070B12] border border-cyan-400 text-white ring-1 ring-cyan-500/40'
+                                    : isManuallyEdited
+                                    ? 'bg-cyan-900/35 border border-cyan-600/70 text-cyan-200 hover:border-cyan-400'
+                                    : 'bg-transparent border border-transparent hover:bg-[#070B12]/70 hover:border-slate-700'
+                                }`}
+                                style={
+                                  !isEditingThis && !isManuallyEdited && !isSkipped && isCourseStart
+                                    ? { color: gbColor }
+                                    : undefined
+                                }
+                              />
                               {isSkipped && isCourseStart && (
-                                <span className="text-[9px] px-1 rounded font-sans font-bold bg-amber-600/85 text-white">
+                                <span className="text-[9px] px-1 rounded font-sans font-bold bg-amber-600/85 text-white shrink-0">
                                   ATLA
                                 </span>
                               )}

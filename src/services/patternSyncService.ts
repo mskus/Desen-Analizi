@@ -66,14 +66,17 @@ export async function savePatternToCloud(pattern: PatternData): Promise<void> {
       safety: pattern.safety,
       repeatX: pattern.repeatX || 1,
       repeatY: pattern.repeatY || 1,
+      ...(pattern.mayDensity !== undefined ? { mayDensity: pattern.mayDensity } : {}),
+      ...(pattern.rackTensionRows !== undefined ? { rackTensionRows: pattern.rackTensionRows } : {}),
+      ...(pattern.isRackManualOverride !== undefined ? { isRackManualOverride: pattern.isRackManualOverride } : {}),
     };
 
-    await setDoc(doc(db, 'patterns', pattern.id), patternDoc);
-
-    // Update local cache immediately
+    // Always update local cache immediately for instant offline/mobile UX
     const cached = getCachedPatterns();
     const updated = [pattern, ...cached.filter((p) => p.id !== pattern.id)];
     saveCachedPatterns(updated);
+
+    await setDoc(doc(db, 'patterns', pattern.id), patternDoc);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }

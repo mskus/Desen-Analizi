@@ -22,6 +22,7 @@ import {
   MoveVertical,
   FlipVertical,
   CopyPlus,
+  Hand,
 } from 'lucide-react';
 import { calculateGuideBarMetrics, GuideBarCalcBadge } from '../utils/fabricCalculator';
 
@@ -87,6 +88,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   const tableCardRef = useRef<HTMLDivElement | null>(null);
   const [isCanvasFullscreen, setIsCanvasFullscreen] = useState(false);
   const [isTableFullscreen, setIsTableFullscreen] = useState(false);
+  const [isNavMode, setIsNavMode] = useState(false);
 
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
 
@@ -153,8 +155,6 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
     dragOffset: { x: number; y: number };
     resizeStart: { w: number; h: number; x: number; y: number };
   }>(() => {
-    const defaultX = typeof window !== 'undefined' ? Math.max(20, window.innerWidth - 300) : 20;
-    const defaultY = typeof window !== 'undefined' ? Math.max(20, window.innerHeight - 260) : 20;
     let savedWin: any = null;
     if (typeof window !== 'undefined') {
       try {
@@ -164,15 +164,35 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
         console.error(e);
       }
     }
+    const isSmallMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+    const initW = savedWin?.width
+      ? (isSmallMobile ? Math.min(savedWin.width, Math.max(168, window.innerWidth - 28)) : savedWin.width)
+      : isSmallMobile
+      ? 188
+      : 280;
+    const initH = savedWin?.height
+      ? (isSmallMobile ? Math.min(savedWin.height, 150) : savedWin.height)
+      : isSmallMobile
+      ? 135
+      : 200;
+    const defaultX = typeof window !== 'undefined' ? Math.max(10, window.innerWidth - initW - 14) : 20;
+    const defaultY = typeof window !== 'undefined' ? Math.max(70, window.innerHeight - initH - 18) : 20;
+    const clampedX = typeof window !== 'undefined' && savedWin?.x !== undefined
+      ? Math.max(10, Math.min(window.innerWidth - initW - 10, savedWin.x))
+      : defaultX;
+    const clampedY = typeof window !== 'undefined' && savedWin?.y !== undefined
+      ? Math.max(10, Math.min(window.innerHeight - initH - 10, savedWin.y))
+      : defaultY;
+
     return {
-      x: savedWin?.x ?? defaultX,
-      y: savedWin?.y ?? defaultY,
-      width: savedWin?.width ?? 280,
-      height: savedWin?.height ?? 200,
+      x: clampedX,
+      y: clampedY,
+      width: initW,
+      height: initH,
       isDragging: false,
       isResizing: false,
       dragOffset: { x: 0, y: 0 },
-      resizeStart: { w: 280, h: 200, x: 0, y: 0 },
+      resizeStart: { w: initW, h: initH, x: 0, y: 0 },
     };
   });
 
@@ -831,6 +851,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   }, [drawPreviewCanvas, drawLiveFabricCanvas, previewWindow.width, previewWindow.height]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isNavMode) return;
     e.preventDefault();
     const courseIdx = getCourseFromClientY(e.clientY);
     const targetNeedle = getNeedleFromClientX(e.clientX);
@@ -850,6 +871,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isNavMode) return;
     const courseIdx = getCourseFromClientY(e.clientY);
     const needle = getNeedleFromClientX(e.clientX);
 
@@ -880,6 +902,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isNavMode) return;
     try {
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -899,6 +922,7 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
   };
 
   const handleDoubleClickCanvas = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isNavMode) return;
     e.preventDefault();
     const courseIdx = getCourseFromClientY(e.clientY);
     const updated = rows.map((r, idx) => {
@@ -1390,8 +1414,32 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
         </button>
       </div>
 
-      {/* Right: Zoom, Fit */}
-      <div className="flex items-center gap-1">
+      {/* Right: Mobile Navigation Toggle, Zoom, Fit */}
+      <div className="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          onClick={() => {
+            setIsNavMode((prev) => {
+              const next = !prev;
+              if (next) {
+                draggingRef.current = null;
+                setDraggingNode(null);
+                setHoverInfo(null);
+              }
+              return next;
+            });
+          }}
+          className={`px-2 py-1 rounded border text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer ${
+            isNavMode
+              ? 'bg-amber-600 text-white border-amber-400 shadow-sm'
+              : 'bg-[#0B0F17] text-slate-200 border-slate-700 hover:bg-slate-800'
+          }`}
+          title="Seçiliyken desen noktalarını bozmadan parmakla kaydırma ve yakınlaştırma yapabilirsiniz"
+        >
+          <Hand className="w-3.5 h-3.5 shrink-0" />
+          <span>{isNavMode ? 'Ölçek / Kaydır Açık' : 'Ölçek / Kaydır'}</span>
+        </button>
+
         <div
           onWheel={(e) => {
             e.preventDefault();
@@ -1496,6 +1544,22 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
         className="bg-[#111827] border border-slate-800 rounded-lg relative"
       >
 
+        {isNavMode && (
+          <div className="px-2.5 py-1 bg-amber-950/80 border-b border-amber-700/70 text-[11px] font-semibold text-amber-200 flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              <Hand className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Ölçek / Kaydır modu aktif: Çizim kilitli, parmakla kaydırıp yakınlaştırabilirsiniz.</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsNavMode(false)}
+              className="px-1.5 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold shrink-0 cursor-pointer"
+            >
+              Çizime Dön
+            </button>
+          </div>
+        )}
+
         {/* Canvas Viewport */}
         <div
           ref={containerRef}
@@ -1510,10 +1574,12 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
               setZoom((z) => Math.max(0.35, Math.min(2.2, Math.round((z + delta) * 100) / 100)));
             }
           }}
-          className={`p-0.5 bg-[#070b14] flex justify-center cursor-crosshair select-none touch-pan-x touch-pan-y ${
+          className={`p-0.5 bg-[#070b14] flex justify-center select-none touch-pan-x touch-pan-y ${
+            isNavMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
+          } ${
             isFullscreen || isCanvasFullscreen
               ? 'overflow-x-auto overflow-y-visible h-auto max-h-none'
-              : 'overflow-auto max-h-[340px]'
+              : 'overflow-auto max-h-[46vh] sm:max-h-[380px]'
           }`}
         >
           <div
@@ -1539,7 +1605,9 @@ export const InteractiveEditorTab: React.FC<InteractiveEditorTabProps> = ({
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
                 onDoubleClick={handleDoubleClickCanvas}
-                className="rounded border border-slate-800/80 bg-[#080d1a] touch-none cursor-pointer block"
+                className={`rounded border border-slate-800/80 bg-[#080d1a] block ${
+                  isNavMode ? 'touch-pan-x touch-pan-y cursor-grab' : 'touch-none cursor-pointer'
+                }`}
               />
             </div>
           </div>

@@ -1,17 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy, useRef } from 'react';
 import { ActiveTab, PatternData, PatternRow, GuideBarConfig, GuideBarId, MachineProfile, SafetyConfig, RackTensionRow } from './types';
 import { patternLibrary, defaultSafetyConfig, createThreadingArray } from './data/patternLibrary';
 import { Navbar } from './components/Navbar';
-import { MachineSettingsTab } from './components/MachineSettingsTab';
 import { SimulationTab } from './components/SimulationTab';
-import { InteractiveEditorTab } from './components/InteractiveEditorTab';
-import { AnalysisTab } from './components/AnalysisTab';
-import { PatternTableTab } from './components/PatternTableTab';
-import { LibraryTab } from './components/LibraryTab';
-import { AccessLogsTab } from './components/AccessLogsTab';
-import { ExportImportModal } from './components/ExportImportModal';
-import { SafetySettingsModal } from './components/SafetySettingsModal';
-import { SavePatternModal } from './components/SavePatternModal';
 import {
   savePatternToCloud,
   deletePatternFromCloud,
@@ -22,6 +13,43 @@ import {
 } from './services/patternSyncService';
 import { logSiteVisit, logSiteExit, trackSharedLinkOpened, startPresencePing } from './services/loggingService';
 import { Check } from 'lucide-react';
+
+const MachineSettingsTab = lazy(() =>
+  import('./components/MachineSettingsTab').then((m) => ({ default: m.MachineSettingsTab }))
+);
+const InteractiveEditorTab = lazy(() =>
+  import('./components/InteractiveEditorTab').then((m) => ({ default: m.InteractiveEditorTab }))
+);
+const AnalysisTab = lazy(() =>
+  import('./components/AnalysisTab').then((m) => ({ default: m.AnalysisTab }))
+);
+const PatternTableTab = lazy(() =>
+  import('./components/PatternTableTab').then((m) => ({ default: m.PatternTableTab }))
+);
+const LibraryTab = lazy(() =>
+  import('./components/LibraryTab').then((m) => ({ default: m.LibraryTab }))
+);
+const AccessLogsTab = lazy(() =>
+  import('./components/AccessLogsTab').then((m) => ({ default: m.AccessLogsTab }))
+);
+const ExportImportModal = lazy(() =>
+  import('./components/ExportImportModal').then((m) => ({ default: m.ExportImportModal }))
+);
+const SafetySettingsModal = lazy(() =>
+  import('./components/SafetySettingsModal').then((m) => ({ default: m.SafetySettingsModal }))
+);
+const SavePatternModal = lazy(() =>
+  import('./components/SavePatternModal').then((m) => ({ default: m.SavePatternModal }))
+);
+
+const TabLoadingFallback = () => (
+  <div className="w-full py-12 flex items-center justify-center text-xs font-semibold text-slate-400">
+    <div className="flex items-center gap-2 bg-[#111827] border border-slate-800 px-4 py-2 rounded-lg">
+      <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+      <span>Yükleniyor...</span>
+    </div>
+  </div>
+);
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
@@ -101,9 +129,13 @@ export default function App() {
     localStorage.setItem('warpknitt_custom_patterns', JSON.stringify(customPatterns));
   }, [customPatterns]);
 
-  // Log site visit & start real-time presence heartbeat on boot + track exits
+  const hasCheckedSeedRef = useRef(false);
+
+  // Log site visit after initial render & start presence heartbeat on boot
   useEffect(() => {
-    logSiteVisit().catch((err) => console.error('Site visit log error:', err));
+    const visitTimer = setTimeout(() => {
+      logSiteVisit().catch(() => {});
+    }, 600);
     const stopPresence = startPresencePing();
 
     const handleExit = () => {
@@ -114,6 +146,7 @@ export default function App() {
     window.addEventListener('pagehide', handleExit);
 
     return () => {
+      clearTimeout(visitTimer);
       stopPresence();
       window.removeEventListener('beforeunload', handleExit);
       window.removeEventListener('pagehide', handleExit);
@@ -123,12 +156,16 @@ export default function App() {
   // Real-time synchronization of universal shared community patterns
   useEffect(() => {
     setIsSyncing(true);
-    // Seed default pattern library into shared cloud if empty
-    seedDefaultPatternsIfNeeded(patternLibrary).catch(() => {});
 
     const unsub = subscribeToCloudPatterns((cloudPatterns) => {
       setIsSyncing(false);
       setCustomPatterns(cloudPatterns);
+      if (!hasCheckedSeedRef.current) {
+        hasCheckedSeedRef.current = true;
+        if (cloudPatterns.length === 0) {
+          seedDefaultPatternsIfNeeded(patternLibrary).catch(() => {});
+        }
+      }
     });
 
     return () => {
@@ -328,129 +365,139 @@ export default function App() {
       />
 
       <main className="flex-1 pb-2">
-        {activeTab === 'machine' && (
-          <MachineSettingsTab
-            machine={currentPattern.machine}
-            onChangeMachine={handleUpdateMachine}
-            guideBars={currentPattern.guideBars}
-            onChangeGuideBar={handleUpdateGuideBar}
-            safety={currentPattern.safety}
-            onChangeSafety={handleUpdateSafety}
-            rows={currentPattern.rows}
-            onChangeRows={handleUpdateRows}
-            fabricWidthCm={fabricWidthCm}
-            onChangeFabricWidth={setFabricWidthCm}
-            onNavigateToLogs={() => setActiveTab('logs')}
-          />
-        )}
+        <Suspense fallback={<TabLoadingFallback />}>
+          {activeTab === 'machine' && (
+            <MachineSettingsTab
+              machine={currentPattern.machine}
+              onChangeMachine={handleUpdateMachine}
+              guideBars={currentPattern.guideBars}
+              onChangeGuideBar={handleUpdateGuideBar}
+              safety={currentPattern.safety}
+              onChangeSafety={handleUpdateSafety}
+              rows={currentPattern.rows}
+              onChangeRows={handleUpdateRows}
+              fabricWidthCm={fabricWidthCm}
+              onChangeFabricWidth={setFabricWidthCm}
+              onNavigateToLogs={() => setActiveTab('logs')}
+            />
+          )}
 
-        {activeTab === 'editor' && (
-          <InteractiveEditorTab
-            pattern={currentPattern}
-            onChangeRows={handleUpdateRows}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            canUndo={historyIndex > 0}
-            canRedo={historyIndex < history.length - 1}
-            onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            onToggleFullscreen={toggleAppFullscreen}
-            isFullscreen={isFullscreen}
-            fabricWidthCm={fabricWidthCm}
-            onChangeFabricWidth={setFabricWidthCm}
-          />
-        )}
+          {activeTab === 'editor' && (
+            <InteractiveEditorTab
+              pattern={currentPattern}
+              onChangeRows={handleUpdateRows}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              canUndo={historyIndex > 0}
+              canRedo={historyIndex < history.length - 1}
+              onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              onToggleFullscreen={toggleAppFullscreen}
+              isFullscreen={isFullscreen}
+              fabricWidthCm={fabricWidthCm}
+              onChangeFabricWidth={setFabricWidthCm}
+            />
+          )}
 
-        {activeTab === 'simulation' && (
-          <SimulationTab
-            pattern={currentPattern}
-            onChangeGuideBar={handleUpdateGuideBar}
-            onChangeRows={handleUpdateRows}
-            onChangeSafety={handleUpdateSafety}
-            onChangeMachine={handleUpdateMachine}
-            onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            onToggleFullscreen={toggleAppFullscreen}
-            isFullscreen={isFullscreen}
-            fabricWidthCm={fabricWidthCm}
-            onChangeFabricWidth={setFabricWidthCm}
-          />
-        )}
+          {activeTab === 'simulation' && (
+            <SimulationTab
+              pattern={currentPattern}
+              onChangeGuideBar={handleUpdateGuideBar}
+              onChangeRows={handleUpdateRows}
+              onChangeSafety={handleUpdateSafety}
+              onChangeMachine={handleUpdateMachine}
+              onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              onToggleFullscreen={toggleAppFullscreen}
+              isFullscreen={isFullscreen}
+              fabricWidthCm={fabricWidthCm}
+              onChangeFabricWidth={setFabricWidthCm}
+            />
+          )}
 
-        {activeTab === 'library' && (
-          <LibraryTab
-            currentPatternId={currentPattern.id}
-            allPatterns={allPatterns}
-            onSelectPattern={handleSelectPattern}
-            onSaveCurrentToLibrary={() => setIsSaveModalOpen(true)}
-            onDeletePattern={handleDeleteCustomPattern}
-          />
-        )}
+          {activeTab === 'library' && (
+            <LibraryTab
+              currentPatternId={currentPattern.id}
+              allPatterns={allPatterns}
+              onSelectPattern={handleSelectPattern}
+              onSaveCurrentToLibrary={() => setIsSaveModalOpen(true)}
+              onDeletePattern={handleDeleteCustomPattern}
+            />
+          )}
 
-        {activeTab === 'analysis' && (
-          <AnalysisTab
-            pattern={currentPattern}
-            fabricWidthCm={fabricWidthCm}
-            onChangeMachine={handleUpdateMachine}
-            onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
-          />
-        )}
+          {activeTab === 'analysis' && (
+            <AnalysisTab
+              pattern={currentPattern}
+              fabricWidthCm={fabricWidthCm}
+              onChangeMachine={handleUpdateMachine}
+              onOpenSafetySettings={() => setIsSafetyModalOpen(true)}
+            />
+          )}
 
-        {activeTab === 'table' && (
-          <PatternTableTab
-            pattern={currentPattern}
-            fabricWidthCm={fabricWidthCm}
-            onUpdateTableExtras={handleUpdateTableExtras}
-          />
-        )}
+          {activeTab === 'table' && (
+            <PatternTableTab
+              pattern={currentPattern}
+              fabricWidthCm={fabricWidthCm}
+              onUpdateTableExtras={handleUpdateTableExtras}
+            />
+          )}
 
-        {activeTab === 'logs' && (
-          <AccessLogsTab
-            onSelectPatternById={(patId) => {
-              const found = allPatterns.find((p) => p.id === patId);
-              if (found) handleSelectPattern(found);
+          {activeTab === 'logs' && (
+            <AccessLogsTab
+              onSelectPatternById={(patId) => {
+                const found = allPatterns.find((p) => p.id === patId);
+                if (found) handleSelectPattern(found);
+              }}
+            />
+          )}
+        </Suspense>
+      </main>
+
+      <Suspense fallback={null}>
+        {modalMode !== null && (
+          <ExportImportModal
+            isOpen={modalMode !== null}
+            onClose={() => setModalMode(null)}
+            mode={modalMode || 'export'}
+            currentPattern={currentPattern}
+            onImportPattern={(pat) => {
+              const safePat = {
+                ...pat,
+                safety: pat.safety || { ...defaultSafetyConfig },
+              };
+              setCurrentPattern(safePat);
+              setHistory([safePat.rows]);
+              setHistoryIndex(0);
             }}
           />
         )}
-      </main>
 
-      <ExportImportModal
-        isOpen={modalMode !== null}
-        onClose={() => setModalMode(null)}
-        mode={modalMode || 'export'}
-        currentPattern={currentPattern}
-        onImportPattern={(pat) => {
-          const safePat = {
-            ...pat,
-            safety: pat.safety || { ...defaultSafetyConfig },
-          };
-          setCurrentPattern(safePat);
-          setHistory([safePat.rows]);
-          setHistoryIndex(0);
-        }}
-      />
+        {isSafetyModalOpen && (
+          <SafetySettingsModal
+            isOpen={isSafetyModalOpen}
+            onClose={() => setIsSafetyModalOpen(false)}
+            safety={currentPattern.safety || defaultSafetyConfig}
+            onChangeSafety={handleUpdateSafety}
+            rows={currentPattern.rows}
+            onChangeRows={handleUpdateRows}
+            onNavigateToLogs={() => {
+              setIsSafetyModalOpen(false);
+              setActiveTab('logs');
+            }}
+          />
+        )}
 
-      <SafetySettingsModal
-        isOpen={isSafetyModalOpen}
-        onClose={() => setIsSafetyModalOpen(false)}
-        safety={currentPattern.safety || defaultSafetyConfig}
-        onChangeSafety={handleUpdateSafety}
-        rows={currentPattern.rows}
-        onChangeRows={handleUpdateRows}
-        onNavigateToLogs={() => {
-          setIsSafetyModalOpen(false);
-          setActiveTab('logs');
-        }}
-      />
-
-      <SavePatternModal
-        isOpen={isSaveModalOpen}
-        onClose={() => setIsSaveModalOpen(false)}
-        currentPattern={currentPattern}
-        onSavePattern={handleSavePatternToLibrary}
-      />
+        {isSaveModalOpen && (
+          <SavePatternModal
+            isOpen={isSaveModalOpen}
+            onClose={() => setIsSaveModalOpen(false)}
+            currentPattern={currentPattern}
+            onSavePattern={handleSavePatternToLibrary}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

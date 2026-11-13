@@ -190,9 +190,16 @@ export async function fetchLocationInfo(): Promise<LocationInfo> {
   return locationFetchPromise;
 }
 
-// Pre-fetch location eagerly on browser runtime
+// Deferred non-blocking location pre-fetch after first paint
 if (typeof window !== 'undefined') {
-  fetchLocationInfo().catch(() => {});
+  const schedulePrefetch = () => {
+    fetchLocationInfo().catch(() => {});
+  };
+  if ('requestIdleCallback' in window) {
+    (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(schedulePrefetch, { timeout: 3000 });
+  } else {
+    setTimeout(schedulePrefetch, 1800);
+  }
 }
 
 // Helper to get or create unique session ID for presence tracking
@@ -221,8 +228,11 @@ function getSessionStartTime(): number {
   return Date.now();
 }
 
-// Heartbeat presence ping for Live Active Users in Firestore
+// Heartbeat presence ping for Live Active Users in Firestore (skips when offline or hidden)
 export async function sendPresencePing(): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+
   const sessionId = getSessionId();
   const device = detectDeviceInfo();
   const location = cachedLocation || getQuickFallbackLocation();
@@ -236,19 +246,37 @@ export async function sendPresencePing(): Promise<void> {
 
   try {
     await setDoc(doc(db, 'active_users', sessionId), activeUserDoc);
-  } catch (err) {
+  } catch {
     // Silent fail for presence ping
   }
 }
 
-// Start presence ping heartbeat loop (updates Firestore every 15 sec)
+// Start presence ping heartbeat loop (updates Firestore every 30 sec while visible)
 export function startPresencePing(): () => void {
-  sendPresencePing();
+  const initialTimer = setTimeout(() => {
+    sendPresencePing();
+  }, 1000);
+
   const interval = setInterval(() => {
     sendPresencePing();
-  }, 15000);
+  }, 30000);
 
-  return () => clearInterval(interval);
+  const handleVisibility = () => {
+    if (!document.hidden) {
+      sendPresencePing();
+    }
+  };
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibility);
+  }
+
+  return () => {
+    clearTimeout(initialTimer);
+    clearInterval(interval);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleVisibility);
+    }
+  };
 }
 
 // Log site entry/visit to Firestore and local cache
