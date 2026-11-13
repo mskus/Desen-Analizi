@@ -1352,6 +1352,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     const tableSettings = loadSavedTableSettings();
     const tableExtras = loadPatternTableExtras(pattern);
     const expandedRows = buildFinalFourStepRows(rows, tableSettings, tableExtras);
+    const displayCourseCount = expandedRows.length > 0 ? Math.ceil(expandedRows.length / 4) : rows.length;
     const rackNote = (tableExtras.rackNote ?? pattern.rackNote ?? '').trim();
     const mayDensity = (pattern.mayDensity ?? tableExtras.mayDensity ?? '').trim();
     const mayDisplay = mayDensity !== '' ? `${mayDensity.replace('.', ',')} May` : 'Belirtilmedi';
@@ -1513,7 +1514,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     ctx.font = 'bold 13px "Plus Jakarta Sans", sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(
-      `TMK TEKSTİL  |  ${pattern.title.toUpperCase()}  |  ${pattern.machine.gauge}  |  ${needleCols} İĞNE  |  ${rows.length} KURS`,
+      `TMK TEKSTİL  |  ${pattern.title.toUpperCase()}  |  ${pattern.machine.gauge}  |  ${needleCols} İĞNE  |  ${displayCourseCount} KURS`,
       padX + 10,
       25
     );
@@ -1791,7 +1792,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     ctx.font = 'bold 12px "Plus Jakarta Sans", sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(
-      `4 ADIMLI MAKİNE DESEN TABLOSU (${rows.length} Kurs · ${totalSteps} Adım)`,
+      `4 ADIMLI MAKİNE DESEN TABLOSU (${displayCourseCount} Kurs · ${totalSteps} Adım)`,
       tableAreaX,
       tableTitleY + 13
     );
@@ -1876,20 +1877,15 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
         // Step Rows
         sliceStepRows.forEach((item, rOffset) => {
           const ry = by + tableHeaderH + rOffset * stepRowH;
-          const isInserted = Boolean(item.isInserted);
-          const isCourseStart = item.stepInCourse === 1 && !isInserted;
-          const isCourseEnd = item.stepInCourse === 4 && !isInserted;
-          const isEvenStep = isInserted ? false : item.stepInCourse % 2 === 0;
+          const isCourseStart = item.stepInCourse === 1;
+          const isCourseEnd = item.stepInCourse === 4;
+          const isEvenStep = item.stepInCourse % 2 === 0;
 
-          ctx.fillStyle = isInserted ? '#1E1B4B' : isEvenStep ? '#111827' : '#0B0F17';
+          ctx.fillStyle = isEvenStep ? '#111827' : '#0B0F17';
           ctx.fillRect(bx + 1, ry, blockWidth - 2, stepRowH);
 
           ctx.textAlign = 'center';
-          if (isInserted) {
-            ctx.fillStyle = '#A5B4FC';
-            ctx.font = 'bold 9.5px "Plus Jakarta Sans", sans-serif';
-            ctx.fillText(item.customLabel || '+Ek', bx + courseColW / 2, ry + 12.5);
-          } else if (isCourseStart) {
+          if (isCourseStart) {
             ctx.fillStyle = '#38BDF8';
             ctx.font = 'bold 11px "JetBrains Mono", monospace';
             ctx.fillText(String(item.courseIndex), bx + courseColW / 2, ry + 12.5);
@@ -1910,7 +1906,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               ctx.fillStyle = '#F59E0B';
               ctx.fillRect(cx + 1, ry, 2.5, stepRowH);
 
-              if ((isCourseStart || isInserted) && barColW >= 46) {
+              if (isCourseStart && barColW >= 46) {
                 ctx.fillStyle = '#FDE68A';
                 ctx.font = 'bold 11px "JetBrains Mono", monospace';
                 ctx.textAlign = 'center';
@@ -1933,11 +1929,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                 ctx.fillText(String(val), cx + barColW / 2, ry + 12.5);
               }
             } else {
-              ctx.fillStyle = isInserted
-                ? '#E0E7FF'
-                : isCourseStart
-                ? gbMap[gbId]?.color || '#F8FAFC'
-                : '#E2E8F0';
+              ctx.fillStyle = isCourseStart ? (gbMap[gbId]?.color || '#F8FAFC') : '#E2E8F0';
               ctx.font = isCourseStart
                 ? 'bold 11px "JetBrains Mono", monospace'
                 : 'bold 10.5px "JetBrains Mono", monospace';

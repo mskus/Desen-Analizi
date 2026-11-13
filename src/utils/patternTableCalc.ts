@@ -27,6 +27,7 @@ export const ALL_DOUBLE_MODES: Record<GuideBarId, StitchLoopMode> = {
 export interface ComputedStepRow {
   rowKey: string;
   courseIndex: number;
+  sourceCourseIndex?: number;
   stepInCourse: 1 | 2 | 3 | 4;
   globalStepIndex: number;
   values: Record<GuideBarId, number>;
@@ -377,13 +378,14 @@ export function buildFinalFourStepRows(
       result.push({
         rowKey: custom.id,
         courseIndex: refCourseIndex,
+        sourceCourseIndex: refCourseIndex,
         stepInCourse: 1,
         globalStepIndex: result.length + 1,
         values: vals,
         sourceValues: { ...vals },
         skippedBars: { ...(custom.skippedBars || {}) },
         isInserted: true,
-        customLabel: custom.label || '+Ek',
+        customLabel: custom.label,
       });
       pushInsertedAfter(custom.id, refCourseIndex);
     });
@@ -395,6 +397,7 @@ export function buildFinalFourStepRows(
     if (!deletedSet.has(item.rowKey)) {
       result.push({
         ...item,
+        sourceCourseIndex: item.courseIndex,
         globalStepIndex: result.length + 1,
       });
     }
@@ -404,6 +407,9 @@ export function buildFinalFourStepRows(
   const withOverrides = applyManualTableOverrides(result, extras?.manualTableOverrides);
   return withOverrides.map((item, idx) => ({
     ...item,
+    sourceCourseIndex: item.sourceCourseIndex ?? item.courseIndex,
+    courseIndex: Math.floor(idx / 4) + 1,
+    stepInCourse: ((idx % 4) + 1) as 1 | 2 | 3 | 4,
     globalStepIndex: idx + 1,
   }));
 }

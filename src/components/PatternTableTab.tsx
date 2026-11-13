@@ -8,6 +8,7 @@ import {
   Layers,
   Info,
   RotateCcw,
+  Undo2,
   Plus,
   PlusCircle,
   MinusCircle,
@@ -106,6 +107,16 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     initialExtras.insertedStepsAfter || {}
   );
   const [editingCell, setEditingCell] = useState<{ key: string; text: string } | null>(null);
+  const [undoStack, setUndoStack] = useState<
+    Array<{
+      manualTableOverrides: Record<string, number>;
+      tableSkipOverrides: Record<string, boolean>;
+      deletedStepKeys: string[];
+      insertedStepsAfter: Record<string, CustomTableStepRow[]>;
+      selectedStepKey: string | null;
+      selectedCourse: number | null;
+    }>
+  >([]);
   const lastLoadedPatternIdRef = useRef<string>(pattern.id);
 
   // Reload when pattern changes
@@ -124,6 +135,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
       setSelectedCourse(1);
       setSelectedStepKey('1-1');
       setEditingCell(null);
+      setUndoStack([]);
     }
   }, [pattern]);
 
@@ -350,11 +362,57 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     deletedStepKeys.length +
     insertedStepsCount;
 
+  const displayCourseCount =
+    finalExpandedRows.length > 0 ? Math.ceil(finalExpandedRows.length / 4) : rows.length;
+
+  const pushUndoSnapshot = () => {
+    setUndoStack((prev) => [
+      ...prev.slice(-49),
+      {
+        manualTableOverrides: { ...manualTableOverrides },
+        tableSkipOverrides: { ...tableSkipOverrides },
+        deletedStepKeys: [...deletedStepKeys],
+        insertedStepsAfter: Object.fromEntries(
+          Object.entries(insertedStepsAfter).map(([k, list]) => [
+            k,
+            list.map((c) => ({
+              ...c,
+              values: { ...c.values },
+              skippedBars: { ...(c.skippedBars || {}) },
+            })),
+          ])
+        ),
+        selectedStepKey,
+        selectedCourse,
+      },
+    ]);
+  };
+
+  const handleUndoTableEdit = () => {
+    if (undoStack.length === 0) return;
+    const prev = undoStack[undoStack.length - 1];
+    setUndoStack((s) => s.slice(0, -1));
+    setManualTableOverrides(prev.manualTableOverrides);
+    setTableSkipOverrides(prev.tableSkipOverrides);
+    setDeletedStepKeys(prev.deletedStepKeys);
+    setInsertedStepsAfter(prev.insertedStepsAfter);
+    setSelectedStepKey(prev.selectedStepKey);
+    setSelectedCourse(prev.selectedCourse);
+    setEditingCell(null);
+    persistExtras({
+      manualTableOverrides: prev.manualTableOverrides,
+      tableSkipOverrides: prev.tableSkipOverrides,
+      deletedStepKeys: prev.deletedStepKeys,
+      insertedStepsAfter: prev.insertedStepsAfter,
+    });
+  };
+
   const commitTableCellEdit = (cellKey: string, rawText: string) => {
     const trimmed = rawText.trim();
     const nextOverrides = { ...manualTableOverrides };
     if (trimmed === '') {
       if (cellKey in nextOverrides) {
+        pushUndoSnapshot();
         delete nextOverrides[cellKey];
         setManualTableOverrides(nextOverrides);
         persistExtras({ manualTableOverrides: nextOverrides });
@@ -364,14 +422,18 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     }
     if (/^-?\d+$/.test(trimmed)) {
       const parsed = parseInt(trimmed, 10);
-      nextOverrides[cellKey] = parsed;
-      setManualTableOverrides(nextOverrides);
-      persistExtras({ manualTableOverrides: nextOverrides });
+      if (nextOverrides[cellKey] !== parsed) {
+        pushUndoSnapshot();
+        nextOverrides[cellKey] = parsed;
+        setManualTableOverrides(nextOverrides);
+        persistExtras({ manualTableOverrides: nextOverrides });
+      }
     }
     setEditingCell(null);
   };
 
   const handleInsertStepAfterSelected = () => {
+    pushUndoSnapshot();
     const anchorKey = activeSelectedRow ? activeSelectedRow.rowKey : '__START__';
     const newId = `ins-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const baseValues: Record<GuideBarId, number> = activeSelectedRow
@@ -379,7 +441,6 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
       : { GB1: 0, GB2: 0, GB3: 0, GB4: 0, GB5: 0, GB6: 0 };
     const newStep: CustomTableStepRow = {
       id: newId,
-      label: '+Ek',
       values: baseValues,
       skippedBars: activeSelectedRow ? { ...activeSelectedRow.skippedBars } : {},
     };
@@ -394,8 +455,65 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     persistExtras({ insertedStepsAfter: nextInserted });
   };
 
+  const handleInsertExtraCourse = () => {
+    pushUndoSnapshot();
+    let anchorKey = '__START__';
+    if (activeSelectedRow) {
+      const rowsInCourse = finalExpandedRows.filter(
+        (r) => r.courseIndex === activeSelectedRow.courseIndex
+      );
+      const courseEndRow = rowsInCourse[rowsInCourse.length - 1] || activeSelectedRow;
+      anchorKey = courseEndRow.rowKey;
+    } else if (finalExpandedRows.length > 0) {
+      anchorKey = finalExpandedRows[finalExpandedRows.length - 1].rowKey;
+    }
+
+    const tStamp = Date.now();
+    const rand = Math.random().toString(36).slice(2, 5);
+    const baseValues: Record<GuideBarId, number> = activeSelectedRow
+      ? { ...activeSelectedRow.values }
+      : finalExpandedRows.length > 0
+      ? { ...finalExpandedRows[finalExpandedRows.length - 1].values }
+      : { GB1: 0, GB2: 0, GB3: 0, GB4: 0, GB5: 0, GB6: 0 };
+    const baseSkips = activeSelectedRow ? { ...activeSelectedRow.skippedBars } : {};
+
+    const courseSteps: CustomTableStepRow[] = [
+      {
+        id: `ins-c1-${tStamp}-${rand}`,
+        values: { ...baseValues },
+        skippedBars: { ...baseSkips },
+      },
+      {
+        id: `ins-c2-${tStamp}-${rand}`,
+        values: { ...baseValues },
+        skippedBars: { ...baseSkips },
+      },
+      {
+        id: `ins-c3-${tStamp}-${rand}`,
+        values: { ...baseValues },
+        skippedBars: { ...baseSkips },
+      },
+      {
+        id: `ins-c4-${tStamp}-${rand}`,
+        values: { ...baseValues },
+        skippedBars: { ...baseSkips },
+      },
+    ];
+
+    const existingList = insertedStepsAfter[anchorKey] || [];
+    const nextInserted: Record<string, CustomTableStepRow[]> = {
+      ...insertedStepsAfter,
+      [anchorKey]: [...courseSteps, ...existingList],
+    };
+    setInsertedStepsAfter(nextInserted);
+    setSelectedStepKey(courseSteps[0].id);
+    if (activeSelectedRow) setSelectedCourse(activeSelectedRow.courseIndex + 1);
+    persistExtras({ insertedStepsAfter: nextInserted });
+  };
+
   const handleDeleteSelectedStep = () => {
     if (!activeSelectedRow) return;
+    pushUndoSnapshot();
     const targetKey = activeSelectedRow.rowKey;
     const curIdx = finalExpandedRows.findIndex((r) => r.rowKey === targetKey);
     const nextNeighbor =
@@ -468,6 +586,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
 
   const handleToggleTableSkip = (gbId: GuideBarId) => {
     if (!activeSelectedRow) return;
+    pushUndoSnapshot();
 
     if (activeSelectedRow.isInserted) {
       const targetId = activeSelectedRow.rowKey;
@@ -490,9 +609,9 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
       return;
     }
 
-    const courseIndex = activeSelectedRow.courseIndex;
-    const skipKey = `${courseIndex}-${gbId}`;
-    const sourceRow = rows.find((r, idx) => (r.courseIndex || idx + 1) === courseIndex);
+    const sourceCourseIdx = activeSelectedRow.sourceCourseIndex ?? activeSelectedRow.courseIndex;
+    const skipKey = `${sourceCourseIdx}-${gbId}`;
+    const sourceRow = rows.find((r, idx) => (r.courseIndex || idx + 1) === sourceCourseIdx);
     const baseSkip = Boolean(sourceRow?.skips?.[gbId]);
     const currentEffectiveSkip =
       skipKey in tableSkipOverrides ? Boolean(tableSkipOverrides[skipKey]) : baseSkip;
@@ -509,6 +628,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   };
 
   const handleResetManualTableOverrides = () => {
+    if (tableEditCount > 0) pushUndoSnapshot();
     setManualTableOverrides({});
     setTableSkipOverrides({});
     setDeletedStepKeys([]);
@@ -525,12 +645,8 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   const handleExportCsv = () => {
     const header = ['Kurs', 'Adim', ...displayBars].join(',');
     const lines = finalExpandedRows.map((item) => {
-      const courseLabel = item.isInserted
-        ? '+Ek'
-        : item.stepInCourse === 1
-        ? String(item.courseIndex)
-        : '';
-      const stepLabel = item.isInserted ? 'Ek' : String(item.stepInCourse);
+      const courseLabel = item.stepInCourse === 1 ? String(item.courseIndex) : '';
+      const stepLabel = String(item.stepInCourse);
       return [
         courseLabel,
         stepLabel,
@@ -552,11 +668,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   const handleCopyTable = async () => {
     const header = ['Kurs', ...displayBars].join('\t');
     const lines = finalExpandedRows.map((item) => {
-      const courseLabel = item.isInserted
-        ? '+Ek'
-        : item.stepInCourse === 1
-        ? String(item.courseIndex)
-        : '';
+      const courseLabel = item.stepInCourse === 1 ? String(item.courseIndex) : '';
       return [courseLabel, ...displayBars.map((gb) => String(item.values[gb]))].join('\t');
     });
     try {
@@ -570,7 +682,8 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   };
 
   const selectedCourseSource = useMemo(() => {
-    const cIdx = activeSelectedRow?.courseIndex ?? selectedCourse;
+    const cIdx =
+      activeSelectedRow?.sourceCourseIndex ?? activeSelectedRow?.courseIndex ?? selectedCourse;
     if (cIdx === null) return null;
     return rows.find((r, idx) => (r.courseIndex || idx + 1) === cIdx) || null;
   }, [rows, selectedCourse, activeSelectedRow]);
@@ -587,7 +700,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
             <h1 className="text-sm sm:text-base font-extrabold text-white flex flex-wrap items-center gap-2">
               <span>Makine 4 Adımlı Desen Tablosu</span>
               <span className="text-[10px] font-mono px-2 py-0.5 bg-emerald-950 text-emerald-300 border border-emerald-800 rounded-full">
-                {rows.length} Kurs · {finalExpandedRows.length} Adım
+                {displayCourseCount} Kurs · {finalExpandedRows.length} Adım
               </span>
               <span className="text-[10px] font-mono px-2 py-0.5 bg-cyan-950 text-cyan-300 border border-cyan-800 rounded-full">
                 Maks Tel: {maxTelCount.toLocaleString('tr-TR')} Tel
@@ -808,7 +921,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
               </span>
               <span className="opacity-50">|</span>
               <span className="font-mono text-[11px]">
-                {pattern.title} ({rows.length} Kurs)
+                {pattern.title} ({displayCourseCount} Kurs)
               </span>
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-800/80 text-slate-300 border border-slate-700">
                 <Edit3 className="w-2.5 h-2.5 text-cyan-400" />
@@ -830,7 +943,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
             {selectedCourseSource && (
               <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
                 <span className="text-slate-400 font-sans font-semibold">
-                  Kurs {selectedCourseSource.courseIndex || activeSelectedRow?.courseIndex} Ham:
+                  Kurs {selectedCourseSource.courseIndex || activeSelectedRow?.sourceCourseIndex || activeSelectedRow?.courseIndex} Ham:
                 </span>
                 {displayBars.map((gbId) => {
                   const isBarSkipped = Boolean(selectedCourseSource.skips?.[gbId]);
@@ -852,21 +965,17 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
             )}
           </div>
 
-          {/* Table-Only Step Editing Bar (Atlama Yap / Yapma + Araya Adım Ekle / Çıkar) */}
+          {/* Table-Only Step Editing Bar (Atlama Yap / Yapma + Araya Adım Ekle / Ekstra Kurs Ekle / Çıkar + Geri Al) */}
           <div className="px-3 py-2 border-b bg-[#0B1220] border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-300 mr-0.5">
                 {activeSelectedRow ? (
-                  activeSelectedRow.isInserted ? (
-                    <span className="text-indigo-300">Seçili: +Ek Adım</span>
-                  ) : (
-                    <span>
-                      Seçili:{' '}
-                      <strong className="text-sky-400 font-mono">
-                        K{activeSelectedRow.courseIndex}·{activeSelectedRow.stepInCourse}
-                      </strong>
-                    </span>
-                  )
+                  <span>
+                    Seçili:{' '}
+                    <strong className="text-sky-400 font-mono">
+                      K{activeSelectedRow.courseIndex}·{activeSelectedRow.stepInCourse}
+                    </strong>
+                  </span>
                 ) : (
                   <span>Tablo İşlemleri:</span>
                 )}
@@ -875,11 +984,21 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
               <button
                 type="button"
                 onClick={handleInsertStepAfterSelected}
-                title="Seçili adımın hemen altına tabloya özel ara adım ekle (ana deseni etkilemez)"
+                title="Seçili adımın hemen altına tabloya özel adım ekle (ana deseni etkilemez)"
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold bg-emerald-900/70 hover:bg-emerald-800 text-emerald-100 border border-emerald-700/80 cursor-pointer transition-colors"
               >
                 <PlusCircle className="w-3.5 h-3.5 text-emerald-300" />
                 <span>Araya Adım Ekle</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleInsertExtraCourse}
+                title="Seçili kursun altına yeni bir kurs (4 adım) ekleyerek kurs sayısını artır (ana deseni etkilemez)"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold bg-cyan-900/70 hover:bg-cyan-800 text-cyan-100 border border-cyan-700/80 cursor-pointer transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5 text-cyan-300" />
+                <span>Ekstra Kurs Ekle</span>
               </button>
 
               <button
@@ -892,6 +1011,17 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                 <MinusCircle className="w-3.5 h-3.5 text-rose-400" />
                 <span>Adımı Çıkar</span>
               </button>
+
+              <button
+                type="button"
+                onClick={handleUndoTableEdit}
+                disabled={undoStack.length === 0}
+                title="Tabloda yapılan son değişikliği geri al"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold bg-slate-800/90 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-600/80 cursor-pointer disabled:cursor-not-allowed transition-colors"
+              >
+                <Undo2 className="w-3.5 h-3.5 text-amber-300" />
+                <span>Geri Al{undoStack.length > 0 ? ` (${undoStack.length})` : ''}</span>
+              </button>
             </div>
 
             {activeSelectedRow && (
@@ -901,7 +1031,9 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                 </span>
                 {displayBars.map((gbId) => {
                   const isSkipped = Boolean(activeSelectedRow.skippedBars[gbId]);
-                  const skipKey = `${activeSelectedRow.courseIndex}-${gbId}`;
+                  const srcCourseIdx =
+                    activeSelectedRow.sourceCourseIndex ?? activeSelectedRow.courseIndex;
+                  const skipKey = `${srcCourseIdx}-${gbId}`;
                   const hasOverride =
                     !activeSelectedRow.isInserted && skipKey in tableSkipOverrides;
                   return (
@@ -961,22 +1093,18 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
 
               <tbody>
                 {finalExpandedRows.map((item) => {
-                  const isInserted = Boolean(item.isInserted);
-                  const isCourseStart = item.stepInCourse === 1 && !isInserted;
-                  const isCourseEnd = item.stepInCourse === 4 && !isInserted;
+                  const isCourseStart = item.stepInCourse === 1;
+                  const isCourseEnd = item.stepInCourse === 4;
                   const isSelectedStep = activeSelectedRow?.rowKey === item.rowKey;
-                  const isSelectedCourse = !isInserted && activeSelectedRow?.courseIndex === item.courseIndex;
-                  const isEvenStep = isInserted ? false : item.stepInCourse % 2 === 0;
+                  const isSelectedCourse = activeSelectedRow?.courseIndex === item.courseIndex;
+                  const isEvenStep = item.stepInCourse % 2 === 0;
 
                   let rowBgClass = '';
                   let rowTextClass = '';
 
                   if (isSelectedStep) {
-                    rowBgClass = isInserted ? 'bg-indigo-600/35' : 'bg-blue-600/40';
+                    rowBgClass = 'bg-blue-600/40';
                     rowTextClass = 'text-white font-extrabold';
-                  } else if (isInserted) {
-                    rowBgClass = 'bg-indigo-950/35';
-                    rowTextClass = 'text-indigo-100 font-bold';
                   } else if (isSelectedCourse) {
                     rowBgClass = isEvenStep ? 'bg-blue-950/35' : 'bg-blue-950/20';
                     rowTextClass = 'text-slate-100 font-semibold';
@@ -1001,11 +1129,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                       className={`${rowBgClass} ${rowTextClass} ${borderBottomClass} cursor-pointer transition-colors hover:brightness-105`}
                     >
                       <td className={`py-1 px-2 sm:px-3 ${cellBorderRight}`}>
-                        {isInserted ? (
-                          <span className="inline-block text-[10px] font-sans font-extrabold px-1.5 py-0.5 rounded bg-indigo-700/80 text-indigo-100">
-                            {item.customLabel || '+Ek'}
-                          </span>
-                        ) : isCourseStart ? (
+                        {isCourseStart ? (
                           <span className="inline-block font-bold text-sky-400">
                             {item.courseIndex}
                           </span>
@@ -1019,10 +1143,10 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                       {displayBars.map((gbId) => {
                         const val = item.values[gbId];
                         const cellKey = `${item.rowKey}-${gbId}`;
-                        const legacyKey = `${item.courseIndex}-${item.stepInCourse}-${gbId}`;
+                        const legacyKey = `${item.sourceCourseIndex ?? item.courseIndex}-${item.stepInCourse}-${gbId}`;
                         const isManuallyEdited =
                           typeof manualTableOverrides[cellKey] === 'number' ||
-                          (!isInserted && typeof manualTableOverrides[legacyKey] === 'number');
+                          (!item.isInserted && typeof manualTableOverrides[legacyKey] === 'number');
                         const isEditingThis = editingCell?.key === cellKey;
                         const isSkipped = Boolean(item.skippedBars[gbId]);
                         const gbColor = pattern.guideBars[gbId]?.color || '#3b82f6';
@@ -1037,9 +1161,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                           <td
                             key={gbId}
                             className={`p-0.5 sm:px-2 ${cellBorderRight} ${cellStateClass}`}
-                            title={`${
-                              isInserted ? '+Ek Adım' : `Kurs ${item.courseIndex} · Adım ${item.stepInCourse}`
-                            } · ${gbId}: ${val}${
+                            title={`Kurs ${item.courseIndex} · Adım ${item.stepInCourse} · ${gbId}: ${val}${
                               isManuallyEdited ? ' (ELLE DÜZENLENDİ)' : isSkipped ? ' (ATLAMA AKTİF)' : ''
                             }`}
                           >
@@ -1073,9 +1195,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                                     (e.target as HTMLInputElement).blur();
                                   }
                                 }}
-                                aria-label={`${
-                                  isInserted ? 'Ek Adım' : `Kurs ${item.courseIndex} Adım ${item.stepInCourse}`
-                                } ${gbId}`}
+                                aria-label={`Kurs ${item.courseIndex} Adım ${item.stepInCourse} ${gbId}`}
                                 className={`w-12 sm:w-14 text-center font-mono text-xs sm:text-sm py-1 px-1 rounded transition-colors focus:outline-none tabular-nums ${
                                   isEditingThis
                                     ? 'bg-[#070B12] border border-cyan-400 text-white ring-1 ring-cyan-500/40'
@@ -1089,7 +1209,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                                     : undefined
                                 }
                               />
-                              {isSkipped && (isCourseStart || isInserted) && (
+                              {isSkipped && isCourseStart && (
                                 <span className="text-[9px] px-1 rounded font-sans font-bold bg-amber-600/85 text-white shrink-0">
                                   ATLA
                                 </span>

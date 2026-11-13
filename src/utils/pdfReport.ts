@@ -196,6 +196,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
   const tableSettings = loadSavedTableSettings();
   const tableExtras = loadPatternTableExtras(pattern);
   const expandedRows = buildFinalFourStepRows(rows, tableSettings, tableExtras);
+  const displayCourseCount = expandedRows.length > 0 ? Math.ceil(expandedRows.length / 4) : rows.length;
   const rackNote = (tableExtras.rackNote ?? pattern.rackNote ?? '').trim();
   const mayDensity = (pattern.mayDensity ?? tableExtras.mayDensity ?? '').trim();
   const mayDisplay = mayDensity !== '' ? `${mayDensity.replace('.', ',')} May` : 'Belirtilmedi';
@@ -226,7 +227,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
     page1.ctx,
     pattern,
     needleCols,
-    rows.length,
+    displayCourseCount,
     `MAY: ${mayDisplay}  |  MAKS TEL: ${maxTelCount.toLocaleString('tr-TR')}`
   );
 
@@ -610,7 +611,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
       const pageStepCount = pageEndStep - pageStartStep;
 
       const firstCourseOnPage = expandedRows[pageStartStep]?.courseIndex ?? 1;
-      const lastCourseOnPage = expandedRows[pageEndStep - 1]?.courseIndex ?? rows.length;
+      const lastCourseOnPage = expandedRows[pageEndStep - 1]?.courseIndex ?? displayCourseCount;
 
       const tPage = createPdfPageCanvas();
       pageCanvases.push(tPage.canvas);
@@ -620,7 +621,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
         tCtx,
         pattern,
         needleCols,
-        rows.length,
+        displayCourseCount,
         totalTablePages > 1
           ? `DESEN TABLOSU (${tPageIdx + 1}/${totalTablePages})`
           : '4 ADIMLI DESEN TABLOSU'
@@ -631,7 +632,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
       tCtx.font = 'bold 16px "Plus Jakarta Sans", sans-serif';
       tCtx.textAlign = 'left';
       tCtx.fillText(
-        `4 ADIMLI MAKİNE DESEN TABLOSU  (Kurs ${firstCourseOnPage} – ${lastCourseOnPage}  /  Toplam ${totalSteps} Adım)`,
+        `4 ADIMLI MAKİNE DESEN TABLOSU  (Kurs ${firstCourseOnPage} – ${lastCourseOnPage}  /  Toplam ${displayCourseCount} Kurs · ${totalSteps} Adım)`,
         PAD_X,
         tableTitleY
       );
@@ -719,20 +720,15 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
         // Step Rows
         sliceSteps.forEach((item, rOffset) => {
           const ry = by + tableHeaderH + rOffset * stepRowH;
-          const isInserted = Boolean(item.isInserted);
-          const isCourseStart = item.stepInCourse === 1 && !isInserted;
-          const isCourseEnd = item.stepInCourse === 4 && !isInserted;
-          const isEvenStep = isInserted ? false : item.stepInCourse % 2 === 0;
+          const isCourseStart = item.stepInCourse === 1;
+          const isCourseEnd = item.stepInCourse === 4;
+          const isEvenStep = item.stepInCourse % 2 === 0;
 
-          tCtx.fillStyle = isInserted ? '#1E1B4B' : isEvenStep ? '#111827' : '#0B0F17';
+          tCtx.fillStyle = isEvenStep ? '#111827' : '#0B0F17';
           tCtx.fillRect(bx + 1, ry, blockWidth - 2, stepRowH);
 
           tCtx.textAlign = 'center';
-          if (isInserted) {
-            tCtx.fillStyle = '#A5B4FC';
-            tCtx.font = 'bold 12px "Plus Jakarta Sans", sans-serif';
-            tCtx.fillText(item.customLabel || '+Ek', bx + courseColW / 2, ry + 17.5);
-          } else if (isCourseStart) {
+          if (isCourseStart) {
             tCtx.fillStyle = '#38BDF8';
             tCtx.font = 'bold 15px "JetBrains Mono", monospace';
             tCtx.fillText(String(item.courseIndex), bx + courseColW / 2, ry + 17.5);
@@ -753,7 +749,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
               tCtx.fillStyle = '#F59E0B';
               tCtx.fillRect(cx + 1, ry, 3.5, stepRowH);
 
-              if ((isCourseStart || isInserted) && barColW >= 72) {
+              if (isCourseStart && barColW >= 72) {
                 tCtx.fillStyle = '#FDE68A';
                 tCtx.font = 'bold 15px "JetBrains Mono", monospace';
                 tCtx.textAlign = 'center';
@@ -776,11 +772,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
                 tCtx.fillText(String(val), cx + barColW / 2, ry + 17.5);
               }
             } else {
-              tCtx.fillStyle = isInserted
-                ? '#E0E7FF'
-                : isCourseStart
-                ? gbMap[gbId]?.color || '#F8FAFC'
-                : '#E2E8F0';
+              tCtx.fillStyle = isCourseStart ? (gbMap[gbId]?.color || '#F8FAFC') : '#E2E8F0';
               tCtx.font = isCourseStart
                 ? 'bold 15.5px "JetBrains Mono", monospace'
                 : 'bold 14.5px "JetBrains Mono", monospace';
