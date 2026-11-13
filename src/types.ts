@@ -90,6 +90,35 @@ export interface PatternData {
   rackTensionRows?: RackTensionRow[];
   isRackManualOverride?: boolean;
   rackNote?: string;
+  tableExtras?: PatternTableExtrasData;
+}
+
+export interface CustomTableStepSnapshot {
+  id: string;
+  label?: string;
+  values: Record<GuideBarId, number>;
+  skippedBars?: Partial<Record<GuideBarId, boolean>>;
+}
+
+export interface LockedTableStepSnapshot {
+  rowKey: string;
+  courseIndex: number;
+  sourceCourseIndex?: number;
+  stepInCourse: 1 | 2 | 3 | 4;
+  globalStepIndex: number;
+  values: Record<GuideBarId, number>;
+  sourceValues: Record<GuideBarId, number>;
+  skippedBars: Partial<Record<GuideBarId, boolean>>;
+  isInserted?: boolean;
+}
+
+export interface PatternTableExtrasData {
+  isTableManualOverride?: boolean;
+  lockedTableRows?: LockedTableStepSnapshot[];
+  manualTableOverrides?: Record<string, number>;
+  tableSkipOverrides?: Record<string, boolean>;
+  deletedStepKeys?: string[];
+  insertedStepsAfter?: Record<string, CustomTableStepSnapshot[]>;
 }
 
 export type ActiveTab = 'simulation' | 'editor' | 'library' | 'machine' | 'analysis' | 'table' | 'logs';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Suspense, lazy, useRef } from 'react';
-import { ActiveTab, PatternData, PatternRow, GuideBarConfig, GuideBarId, MachineProfile, SafetyConfig, RackTensionRow } from './types';
+import { ActiveTab, PatternData, PatternRow, GuideBarConfig, GuideBarId, MachineProfile, SafetyConfig, RackTensionRow, PatternTableExtrasData } from './types';
 import { patternLibrary, defaultSafetyConfig, createThreadingArray } from './data/patternLibrary';
 import { Navbar } from './components/Navbar';
 import { SimulationTab } from './components/SimulationTab';
@@ -83,7 +83,7 @@ export default function App() {
             }
           });
         }
-        if (parsed.id.startsWith('pat-')) {
+        if (!Array.isArray(parsed.rows) || parsed.rows.length === 0) {
           return patternLibrary[0];
         }
         if (!parsed.createdAt) {
@@ -294,7 +294,8 @@ export default function App() {
     mayDensity: string,
     rackTensionRows: RackTensionRow[],
     isRackManualOverride: boolean,
-    rackNote?: string
+    rackNote?: string,
+    tableExtras?: PatternTableExtrasData
   ) => {
     setCurrentPattern((prev) => ({
       ...prev,
@@ -302,6 +303,7 @@ export default function App() {
       rackTensionRows,
       isRackManualOverride,
       ...(rackNote !== undefined ? { rackNote } : {}),
+      ...(tableExtras !== undefined ? { tableExtras } : {}),
     }));
   };
 

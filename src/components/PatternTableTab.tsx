@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { PatternData, GuideBarId, RackTensionRow } from '../types';
+import { PatternData, GuideBarId, RackTensionRow, PatternTableExtrasData } from '../types';
 import {
   Table2,
   Download,
@@ -10,7 +10,6 @@ import {
   RotateCcw,
   Undo2,
   Plus,
-  PlusCircle,
   MinusCircle,
   Trash2,
   Gauge,
@@ -30,6 +29,8 @@ import {
   DescendingStartMode,
   ComputedStepRow,
   CustomTableStepRow,
+  computeGuideBarFourStepSeries,
+  extractPatternTableExtrasData,
   buildFinalFourStepRows,
   loadSavedTableSettings,
   saveTableSettings,
@@ -49,7 +50,8 @@ interface PatternTableTabProps {
     mayDensity: string,
     rackTensionRows: RackTensionRow[],
     isRackManualOverride: boolean,
-    rackNote?: string
+    rackNote?: string,
+    tableExtras?: PatternTableExtrasData
   ) => void;
 }
 
@@ -94,6 +96,12 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     initialExtras.isRackManualOverride
   );
   const [rackNote, setRackNote] = useState<string>(initialExtras.rackNote || '');
+  const [isTableManualOverride, setIsTableManualOverride] = useState<boolean>(
+    Boolean(initialExtras.isTableManualOverride)
+  );
+  const [lockedTableRows, setLockedTableRows] = useState<ComputedStepRow[]>(
+    initialExtras.lockedTableRows || []
+  );
   const [manualTableOverrides, setManualTableOverrides] = useState<Record<string, number>>(
     initialExtras.manualTableOverrides || {}
   );
@@ -107,16 +115,20 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     initialExtras.insertedStepsAfter || {}
   );
   const [editingCell, setEditingCell] = useState<{ key: string; text: string } | null>(null);
-  const [undoStack, setUndoStack] = useState<
-    Array<{
-      manualTableOverrides: Record<string, number>;
-      tableSkipOverrides: Record<string, boolean>;
-      deletedStepKeys: string[];
-      insertedStepsAfter: Record<string, CustomTableStepRow[]>;
-      selectedStepKey: string | null;
-      selectedCourse: number | null;
-    }>
-  >([]);
+
+  type TableUndoSnapshot = {
+    isTableManualOverride: boolean;
+    lockedTableRows: ComputedStepRow[];
+    manualTableOverrides: Record<string, number>;
+    tableSkipOverrides: Record<string, boolean>;
+    deletedStepKeys: string[];
+    insertedStepsAfter: Record<string, CustomTableStepRow[]>;
+    selectedStepKey: string | null;
+    selectedCourse: number | null;
+  };
+
+  const [undoStack, setUndoStack] = useState<TableUndoSnapshot[]>([]);
+  const preEditSnapshotRef = useRef<TableUndoSnapshot | null>(null);
   const lastLoadedPatternIdRef = useRef<string>(pattern.id);
 
   // Reload when pattern changes
@@ -128,6 +140,8 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
       setRackTensionRows(next.rackTensionRows);
       setIsRackManualOverride(next.isRackManualOverride);
       setRackNote(next.rackNote || '');
+      setIsTableManualOverride(Boolean(next.isTableManualOverride));
+      setLockedTableRows(next.lockedTableRows || []);
       setManualTableOverrides(next.manualTableOverrides || {});
       setTableSkipOverrides(next.tableSkipOverrides || {});
       setDeletedStepKeys(next.deletedStepKeys || []);
@@ -135,6 +149,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
       setSelectedCourse(1);
       setSelectedStepKey('1-1');
       setEditingCell(null);
+      preEditSnapshotRef.current = null;
       setUndoStack([]);
     }
   }, [pattern]);
@@ -156,6 +171,8 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     rackTensionRows?: RackTensionRow[];
     isRackManualOverride?: boolean;
     rackNote?: string;
+    isTableManualOverride?: boolean;
+    lockedTableRows?: ComputedStepRow[];
     manualTableOverrides?: Record<string, number>;
     tableSkipOverrides?: Record<string, boolean>;
     deletedStepKeys?: string[];
@@ -165,22 +182,34 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     const nextRackRows = patch?.rackTensionRows ?? rackTensionRows;
     const nextManualOverride = patch?.isRackManualOverride ?? isRackManualOverride;
     const nextRackNote = patch?.rackNote ?? rackNote;
+    const nextIsTableManual = patch?.isTableManualOverride ?? isTableManualOverride;
+    const nextLockedRows = patch?.lockedTableRows ?? lockedTableRows;
     const nextTableOverrides = patch?.manualTableOverrides ?? manualTableOverrides;
     const nextTableSkips = patch?.tableSkipOverrides ?? tableSkipOverrides;
     const nextDeletedKeys = patch?.deletedStepKeys ?? deletedStepKeys;
     const nextInsertedMap = patch?.insertedStepsAfter ?? insertedStepsAfter;
 
-    savePatternTableExtras(pattern.id, {
+    const fullExtras = {
       mayDensity: nextMay,
       rackTensionRows: nextRackRows,
       isRackManualOverride: nextManualOverride,
       rackNote: nextRackNote,
+      isTableManualOverride: nextIsTableManual,
+      lockedTableRows: nextLockedRows,
       manualTableOverrides: nextTableOverrides,
       tableSkipOverrides: nextTableSkips,
       deletedStepKeys: nextDeletedKeys,
       insertedStepsAfter: nextInsertedMap,
-    });
-    onUpdateTableExtras?.(nextMay, nextRackRows, nextManualOverride, nextRackNote);
+    };
+
+    savePatternTableExtras(pattern.id, fullExtras);
+    onUpdateTableExtras?.(
+      nextMay,
+      nextRackRows,
+      nextManualOverride,
+      nextRackNote,
+      extractPatternTableExtrasData(fullExtras)
+    );
   };
 
   const handleMayChange = (val: string) => {
@@ -309,13 +338,16 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     return activeGbIds.length > 0 ? activeGbIds : ALL_GB_IDS;
   }, [showAllBars, activeGbIds]);
 
-  // Expand every course row into 4 machine step rows + apply table-only edits (skips, inserts, deletes, manual cells)
-  // NEVER mutates pattern.rows!
+  // Expand every course row into 4 machine step rows + apply table-only edits
+  // When `isTableManualOverride` is active, returns locked manual rows verbatim without auto-recalculation.
+  // NEVER mutates pattern.rows or pattern.guideBars!
   const finalExpandedRows = useMemo<ComputedStepRow[]>(() => {
     return buildFinalFourStepRows(
       rows,
       { barModes, loopWidth, skipBehavior, descendingStartMode },
       {
+        isTableManualOverride,
+        lockedTableRows,
         manualTableOverrides,
         tableSkipOverrides,
         deletedStepKeys,
@@ -328,6 +360,8 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     loopWidth,
     skipBehavior,
     descendingStartMode,
+    isTableManualOverride,
+    lockedTableRows,
     manualTableOverrides,
     tableSkipOverrides,
     deletedStepKeys,
@@ -365,98 +399,162 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   const displayCourseCount =
     finalExpandedRows.length > 0 ? Math.ceil(finalExpandedRows.length / 4) : rows.length;
 
-  const pushUndoSnapshot = () => {
-    setUndoStack((prev) => [
-      ...prev.slice(-49),
-      {
-        manualTableOverrides: { ...manualTableOverrides },
-        tableSkipOverrides: { ...tableSkipOverrides },
-        deletedStepKeys: [...deletedStepKeys],
-        insertedStepsAfter: Object.fromEntries(
-          Object.entries(insertedStepsAfter).map(([k, list]) => [
-            k,
-            list.map((c) => ({
-              ...c,
-              values: { ...c.values },
-              skippedBars: { ...(c.skippedBars || {}) },
-            })),
-          ])
-        ),
-        selectedStepKey,
-        selectedCourse,
-      },
-    ]);
+  const cloneComputedRows = (list: ComputedStepRow[]): ComputedStepRow[] =>
+    list.map((r) => ({
+      ...r,
+      values: { ...r.values },
+      sourceValues: { ...r.sourceValues },
+      skippedBars: { ...(r.skippedBars || {}) },
+    }));
+
+  const captureSnapshot = (): TableUndoSnapshot => ({
+    isTableManualOverride,
+    lockedTableRows: cloneComputedRows(lockedTableRows),
+    manualTableOverrides: { ...manualTableOverrides },
+    tableSkipOverrides: { ...tableSkipOverrides },
+    deletedStepKeys: [...deletedStepKeys],
+    insertedStepsAfter: Object.fromEntries(
+      Object.entries(insertedStepsAfter).map(([k, list]) => [
+        k,
+        list.map((c) => ({
+          ...c,
+          values: { ...c.values },
+          skippedBars: { ...(c.skippedBars || {}) },
+        })),
+      ])
+    ),
+    selectedStepKey,
+    selectedCourse,
+  });
+
+  const pushUndoSnapshot = (snap?: TableUndoSnapshot) => {
+    const targetSnap = snap ?? captureSnapshot();
+    setUndoStack((prev) => [...prev.slice(-49), targetSnap]);
+  };
+
+  const applySnapshot = (snap: TableUndoSnapshot) => {
+    setIsTableManualOverride(snap.isTableManualOverride);
+    setLockedTableRows(snap.lockedTableRows);
+    setManualTableOverrides(snap.manualTableOverrides);
+    setTableSkipOverrides(snap.tableSkipOverrides);
+    setDeletedStepKeys(snap.deletedStepKeys);
+    setInsertedStepsAfter(snap.insertedStepsAfter);
+    setSelectedStepKey(snap.selectedStepKey);
+    setSelectedCourse(snap.selectedCourse);
+    setEditingCell(null);
+    persistExtras({
+      isTableManualOverride: snap.isTableManualOverride,
+      lockedTableRows: snap.lockedTableRows,
+      manualTableOverrides: snap.manualTableOverrides,
+      tableSkipOverrides: snap.tableSkipOverrides,
+      deletedStepKeys: snap.deletedStepKeys,
+      insertedStepsAfter: snap.insertedStepsAfter,
+    });
   };
 
   const handleUndoTableEdit = () => {
     if (undoStack.length === 0) return;
     const prev = undoStack[undoStack.length - 1];
     setUndoStack((s) => s.slice(0, -1));
-    setManualTableOverrides(prev.manualTableOverrides);
-    setTableSkipOverrides(prev.tableSkipOverrides);
-    setDeletedStepKeys(prev.deletedStepKeys);
-    setInsertedStepsAfter(prev.insertedStepsAfter);
-    setSelectedStepKey(prev.selectedStepKey);
-    setSelectedCourse(prev.selectedCourse);
-    setEditingCell(null);
-    persistExtras({
-      manualTableOverrides: prev.manualTableOverrides,
-      tableSkipOverrides: prev.tableSkipOverrides,
-      deletedStepKeys: prev.deletedStepKeys,
-      insertedStepsAfter: prev.insertedStepsAfter,
-    });
+    applySnapshot(prev);
   };
 
-  const commitTableCellEdit = (cellKey: string, rawText: string) => {
-    const trimmed = rawText.trim();
-    const nextOverrides = { ...manualTableOverrides };
-    if (trimmed === '') {
-      if (cellKey in nextOverrides) {
-        pushUndoSnapshot();
-        delete nextOverrides[cellKey];
-        setManualTableOverrides(nextOverrides);
-        persistExtras({ manualTableOverrides: nextOverrides });
-      }
-      setEditingCell(null);
-      return;
-    }
+  const handleLiveTableCellChange = (rowKey: string, cellKey: string, gbId: GuideBarId, raw: string) => {
+    if (!(raw === '' || raw === '-' || /^-?\d+$/.test(raw))) return;
+    setEditingCell({ key: cellKey, text: raw });
+
+    const trimmed = raw.trim();
     if (/^-?\d+$/.test(trimmed)) {
       const parsed = parseInt(trimmed, 10);
-      if (nextOverrides[cellKey] !== parsed) {
-        pushUndoSnapshot();
-        nextOverrides[cellKey] = parsed;
-        setManualTableOverrides(nextOverrides);
-        persistExtras({ manualTableOverrides: nextOverrides });
-      }
+      const baseList =
+        isTableManualOverride && lockedTableRows.length > 0
+          ? lockedTableRows
+          : finalExpandedRows;
+      const nextLockedRows = baseList.map((row) =>
+        row.rowKey === rowKey
+          ? {
+              ...row,
+              values: { ...row.values, [gbId]: parsed },
+              sourceValues: { ...row.sourceValues },
+              skippedBars: { ...(row.skippedBars || {}) },
+            }
+          : {
+              ...row,
+              values: { ...row.values },
+              sourceValues: { ...row.sourceValues },
+              skippedBars: { ...(row.skippedBars || {}) },
+            }
+      );
+      const nextOverrides = {
+        ...manualTableOverrides,
+        [cellKey]: parsed,
+      };
+      setIsTableManualOverride(true);
+      setLockedTableRows(nextLockedRows);
+      setManualTableOverrides(nextOverrides);
+      persistExtras({
+        isTableManualOverride: true,
+        lockedTableRows: nextLockedRows,
+        manualTableOverrides: nextOverrides,
+      });
     }
-    setEditingCell(null);
-  };
-
-  const handleInsertStepAfterSelected = () => {
-    pushUndoSnapshot();
-    const anchorKey = activeSelectedRow ? activeSelectedRow.rowKey : '__START__';
-    const newId = `ins-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const baseValues: Record<GuideBarId, number> = activeSelectedRow
-      ? { ...activeSelectedRow.values }
-      : { GB1: 0, GB2: 0, GB3: 0, GB4: 0, GB5: 0, GB6: 0 };
-    const newStep: CustomTableStepRow = {
-      id: newId,
-      values: baseValues,
-      skippedBars: activeSelectedRow ? { ...activeSelectedRow.skippedBars } : {},
-    };
-    const existingList = insertedStepsAfter[anchorKey] || [];
-    const nextInserted: Record<string, CustomTableStepRow[]> = {
-      ...insertedStepsAfter,
-      [anchorKey]: [newStep, ...existingList],
-    };
-    setInsertedStepsAfter(nextInserted);
-    setSelectedStepKey(newId);
-    if (activeSelectedRow) setSelectedCourse(activeSelectedRow.courseIndex);
-    persistExtras({ insertedStepsAfter: nextInserted });
   };
 
   const handleInsertExtraCourse = () => {
     pushUndoSnapshot();
+    const tStamp = Date.now();
+    const rand = Math.random().toString(36).slice(2, 5);
+    const baseValues: Record<GuideBarId, number> = activeSelectedRow
+      ? { ...activeSelectedRow.values }
+      : finalExpandedRows.length > 0
+      ? { ...finalExpandedRows[finalExpandedRows.length - 1].values }
+      : { GB1: 0, GB2: 0, GB3: 0, GB4: 0, GB5: 0, GB6: 0 };
+    const baseSkips = activeSelectedRow ? { ...activeSelectedRow.skippedBars } : {};
+
+    if (isTableManualOverride && lockedTableRows.length > 0) {
+      const currentRows = cloneComputedRows(finalExpandedRows);
+      let insertAt = currentRows.length;
+      if (activeSelectedRow) {
+        const lastCourseRowIdx = currentRows.reduce(
+          (acc, r, idx) => (r.courseIndex === activeSelectedRow.courseIndex ? idx : acc),
+          -1
+        );
+        if (lastCourseRowIdx >= 0) insertAt = lastCourseRowIdx + 1;
+      }
+      const refCourse = activeSelectedRow
+        ? activeSelectedRow.courseIndex + 1
+        : Math.ceil(currentRows.length / 4) + 1;
+
+      const newLockedSteps: ComputedStepRow[] = ([1, 2, 3, 4] as const).map((stepNum, sIdx) => ({
+        rowKey: `ins-c${stepNum}-${tStamp}-${rand}`,
+        courseIndex: refCourse,
+        sourceCourseIndex: refCourse,
+        stepInCourse: stepNum,
+        globalStepIndex: insertAt + sIdx + 1,
+        values: { ...baseValues },
+        sourceValues: { ...baseValues },
+        skippedBars: { ...baseSkips },
+        isInserted: true,
+      }));
+
+      const nextLocked = [
+        ...currentRows.slice(0, insertAt),
+        ...newLockedSteps,
+        ...currentRows.slice(insertAt),
+      ].map((item, idx) => ({
+        ...item,
+        courseIndex: Math.floor(idx / 4) + 1,
+        stepInCourse: ((idx % 4) + 1) as 1 | 2 | 3 | 4,
+        globalStepIndex: idx + 1,
+      }));
+
+      setLockedTableRows(nextLocked);
+      setSelectedStepKey(newLockedSteps[0].rowKey);
+      if (activeSelectedRow) setSelectedCourse(activeSelectedRow.courseIndex + 1);
+      persistExtras({ isTableManualOverride: true, lockedTableRows: nextLocked });
+      return;
+    }
+
     let anchorKey = '__START__';
     if (activeSelectedRow) {
       const rowsInCourse = finalExpandedRows.filter(
@@ -467,15 +565,6 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     } else if (finalExpandedRows.length > 0) {
       anchorKey = finalExpandedRows[finalExpandedRows.length - 1].rowKey;
     }
-
-    const tStamp = Date.now();
-    const rand = Math.random().toString(36).slice(2, 5);
-    const baseValues: Record<GuideBarId, number> = activeSelectedRow
-      ? { ...activeSelectedRow.values }
-      : finalExpandedRows.length > 0
-      ? { ...finalExpandedRows[finalExpandedRows.length - 1].values }
-      : { GB1: 0, GB2: 0, GB3: 0, GB4: 0, GB5: 0, GB6: 0 };
-    const baseSkips = activeSelectedRow ? { ...activeSelectedRow.skippedBars } : {};
 
     const courseSteps: CustomTableStepRow[] = [
       {
@@ -520,6 +609,35 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
       curIdx >= 0
         ? finalExpandedRows[curIdx + 1] || finalExpandedRows[curIdx - 1] || null
         : null;
+
+    if (isTableManualOverride && lockedTableRows.length > 0) {
+      const nextLocked = cloneComputedRows(finalExpandedRows)
+        .filter((r) => r.rowKey !== targetKey)
+        .map((item, idx) => ({
+          ...item,
+          courseIndex: Math.floor(idx / 4) + 1,
+          stepInCourse: ((idx % 4) + 1) as 1 | 2 | 3 | 4,
+          globalStepIndex: idx + 1,
+        }));
+      const nextOverrides = { ...manualTableOverrides };
+      ALL_GB_IDS.forEach((gb) => {
+        delete nextOverrides[`${targetKey}-${gb}`];
+      });
+      setLockedTableRows(nextLocked);
+      setManualTableOverrides(nextOverrides);
+      if (nextNeighbor) {
+        setSelectedStepKey(nextNeighbor.rowKey);
+        setSelectedCourse(nextNeighbor.courseIndex);
+      } else {
+        setSelectedStepKey(null);
+      }
+      persistExtras({
+        isTableManualOverride: true,
+        lockedTableRows: nextLocked,
+        manualTableOverrides: nextOverrides,
+      });
+      return;
+    }
 
     if (activeSelectedRow.isInserted) {
       const nextInserted: Record<string, CustomTableStepRow[]> = {};
@@ -588,6 +706,41 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     if (!activeSelectedRow) return;
     pushUndoSnapshot();
 
+    if (isTableManualOverride && lockedTableRows.length > 0) {
+      const targetCourseIdx = activeSelectedRow.courseIndex;
+      const curSkip = Boolean(activeSelectedRow.skippedBars[gbId]);
+      const nextSkip = !curSkip;
+      const baseVal =
+        activeSelectedRow.sourceValues?.[gbId] ?? activeSelectedRow.values[gbId] ?? 0;
+      const [newSteps] = computeGuideBarFourStepSeries(
+        [baseVal],
+        [nextSkip],
+        barModes[gbId],
+        loopWidth,
+        skipBehavior,
+        descendingStartMode
+      );
+
+      const nextLocked = cloneComputedRows(finalExpandedRows).map((row) => {
+        if (row.courseIndex !== targetCourseIdx) return row;
+        return {
+          ...row,
+          values: {
+            ...row.values,
+            [gbId]: newSteps[row.stepInCourse - 1] ?? row.values[gbId],
+          },
+          skippedBars: {
+            ...(row.skippedBars || {}),
+            [gbId]: nextSkip,
+          },
+        };
+      });
+
+      setLockedTableRows(nextLocked);
+      persistExtras({ isTableManualOverride: true, lockedTableRows: nextLocked });
+      return;
+    }
+
     if (activeSelectedRow.isInserted) {
       const targetId = activeSelectedRow.rowKey;
       const nextInserted: Record<string, CustomTableStepRow[]> = {};
@@ -628,13 +781,18 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   };
 
   const handleResetManualTableOverrides = () => {
-    if (tableEditCount > 0) pushUndoSnapshot();
+    if (isTableManualOverride || tableEditCount > 0) pushUndoSnapshot();
+    setIsTableManualOverride(false);
+    setLockedTableRows([]);
     setManualTableOverrides({});
     setTableSkipOverrides({});
     setDeletedStepKeys([]);
     setInsertedStepsAfter({});
     setEditingCell(null);
+    preEditSnapshotRef.current = null;
     persistExtras({
+      isTableManualOverride: false,
+      lockedTableRows: [],
       manualTableOverrides: {},
       tableSkipOverrides: {},
       deletedStepKeys: [],
@@ -923,19 +1081,26 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
               <span className="font-mono text-[11px]">
                 {pattern.title} ({displayCourseCount} Kurs)
               </span>
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-800/80 text-slate-300 border border-slate-700">
-                <Edit3 className="w-2.5 h-2.5 text-cyan-400" />
-                <span>Tablo düzenlemeleri ana deseni değiştirmez</span>
-              </span>
-              {tableEditCount > 0 && (
+              {isTableManualOverride ? (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 border border-amber-700 text-amber-300">
+                  <Lock className="w-2.5 h-2.5" />
+                  <span>Elle Girildi (Sabit — Otomatik Değişmez)</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-800/80 text-slate-300 border border-slate-700">
+                  <Edit3 className="w-2.5 h-2.5 text-cyan-400" />
+                  <span>Tablo düzenlemeleri ana deseni değiştirmez</span>
+                </span>
+              )}
+              {(isTableManualOverride || tableEditCount > 0) && (
                 <button
                   type="button"
                   onClick={handleResetManualTableOverrides}
-                  title="Tabloya özel değişiklikleri (elle değer, atlama, eklenen/çıkarılan adım) sıfırla"
+                  title="Elle sabitlenen tabloyu sıfırla ve otomatik hesaplamaya dön"
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 hover:bg-amber-900/90 text-amber-200 border border-amber-700 cursor-pointer transition-colors"
                 >
                   <RotateCcw className="w-2.5 h-2.5" />
-                  <span>Otomatiğe Dön ({tableEditCount})</span>
+                  <span>Otomatiğe Dön</span>
                 </button>
               )}
             </div>
@@ -965,7 +1130,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
             )}
           </div>
 
-          {/* Table-Only Step Editing Bar (Atlama Yap / Yapma + Araya Adım Ekle / Ekstra Kurs Ekle / Çıkar + Geri Al) */}
+          {/* Table-Only Step Editing Bar (Ekstra Kurs Ekle / Çıkar + Geri Al + Tablo Atlama) */}
           <div className="px-3 py-2 border-b bg-[#0B1220] border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-300 mr-0.5">
@@ -980,16 +1145,6 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                   <span>Tablo İşlemleri:</span>
                 )}
               </span>
-
-              <button
-                type="button"
-                onClick={handleInsertStepAfterSelected}
-                title="Seçili adımın hemen altına tabloya özel adım ekle (ana deseni etkilemez)"
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold bg-emerald-900/70 hover:bg-emerald-800 text-emerald-100 border border-emerald-700/80 cursor-pointer transition-colors"
-              >
-                <PlusCircle className="w-3.5 h-3.5 text-emerald-300" />
-                <span>Araya Adım Ekle</span>
-              </button>
 
               <button
                 type="button"
@@ -1173,25 +1328,38 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                                 onFocus={(e) => {
                                   setSelectedStepKey(item.rowKey);
                                   setSelectedCourse(item.courseIndex);
+                                  preEditSnapshotRef.current = captureSnapshot();
                                   setEditingCell({ key: cellKey, text: String(val) });
                                   e.target.select();
                                 }}
                                 onChange={(e) => {
-                                  const raw = e.target.value;
-                                  if (raw === '' || raw === '-' || /^-?\d+$/.test(raw)) {
-                                    setEditingCell({ key: cellKey, text: raw });
-                                  }
+                                  handleLiveTableCellChange(item.rowKey, cellKey, gbId, e.target.value);
                                 }}
                                 onBlur={() => {
-                                  if (isEditingThis && editingCell) {
-                                    commitTableCellEdit(cellKey, editingCell.text);
+                                  const snap = preEditSnapshotRef.current;
+                                  if (snap) {
+                                    const changed =
+                                      snap.isTableManualOverride !== isTableManualOverride ||
+                                      snap.manualTableOverrides[cellKey] !== manualTableOverrides[cellKey] ||
+                                      JSON.stringify(snap.lockedTableRows) !== JSON.stringify(lockedTableRows);
+                                    if (changed) {
+                                      pushUndoSnapshot(snap);
+                                    }
+                                    preEditSnapshotRef.current = null;
                                   }
+                                  setEditingCell(null);
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     (e.target as HTMLInputElement).blur();
                                   } else if (e.key === 'Escape') {
-                                    setEditingCell(null);
+                                    const snap = preEditSnapshotRef.current;
+                                    preEditSnapshotRef.current = null;
+                                    if (snap) {
+                                      applySnapshot(snap);
+                                    } else {
+                                      setEditingCell(null);
+                                    }
                                     (e.target as HTMLInputElement).blur();
                                   }
                                 }}

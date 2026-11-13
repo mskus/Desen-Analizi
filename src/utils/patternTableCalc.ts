@@ -1,4 +1,4 @@
-import { GuideBarId, PatternData, RackTensionRow } from '../types';
+import { GuideBarId, PatternData, PatternTableExtrasData, RackTensionRow } from '../types';
 
 export type StitchLoopMode = 'double_bed' | 'front_bed' | 'back_bed' | 'inlay';
 export type SkipBehaviorMode = 'front_skip' | 'back_skip' | 'full_skip';
@@ -290,10 +290,55 @@ export interface PatternTableExtras {
   rackTensionRows: RackTensionRow[];
   isRackManualOverride: boolean;
   rackNote?: string;
+  isTableManualOverride?: boolean;
+  lockedTableRows?: ComputedStepRow[];
   manualTableOverrides?: Record<string, number>;
   tableSkipOverrides?: Record<string, boolean>;
   deletedStepKeys?: string[];
   insertedStepsAfter?: Record<string, CustomTableStepRow[]>;
+}
+
+export function extractPatternTableExtrasData(
+  extras: Partial<PatternTableExtras>
+): PatternTableExtrasData {
+  const cleanLockedRows = Array.isArray(extras.lockedTableRows)
+    ? extras.lockedTableRows.map((item) => ({
+        rowKey: item.rowKey,
+        courseIndex: item.courseIndex,
+        ...(item.sourceCourseIndex !== undefined
+          ? { sourceCourseIndex: item.sourceCourseIndex }
+          : {}),
+        stepInCourse: item.stepInCourse,
+        globalStepIndex: item.globalStepIndex,
+        values: { ...item.values },
+        sourceValues: { ...item.sourceValues },
+        skippedBars: { ...(item.skippedBars || {}) },
+        ...(item.isInserted ? { isInserted: true } : {}),
+      }))
+    : [];
+
+  const cleanInserted: Record<string, CustomTableStepRow[]> = {};
+  if (extras.insertedStepsAfter) {
+    Object.entries(extras.insertedStepsAfter).forEach(([k, list]) => {
+      if (Array.isArray(list) && list.length > 0) {
+        cleanInserted[k] = list.map((c) => ({
+          id: c.id,
+          ...(c.label ? { label: c.label } : {}),
+          values: { ...c.values },
+          skippedBars: { ...(c.skippedBars || {}) },
+        }));
+      }
+    });
+  }
+
+  return {
+    isTableManualOverride: Boolean(extras.isTableManualOverride),
+    lockedTableRows: cleanLockedRows,
+    manualTableOverrides: { ...(extras.manualTableOverrides || {}) },
+    tableSkipOverrides: { ...(extras.tableSkipOverrides || {}) },
+    deletedStepKeys: [...(extras.deletedStepKeys || [])],
+    insertedStepsAfter: cleanInserted,
+  };
 }
 
 export function applyTableSkipOverridesToRows(
@@ -346,6 +391,16 @@ export function buildFinalFourStepRows(
   settings: Pick<TableCalcSettings, 'barModes' | 'loopWidth' | 'skipBehavior' | 'descendingStartMode'>,
   extras?: Partial<PatternTableExtras>
 ): ComputedStepRow[] {
+  if (extras?.isTableManualOverride && Array.isArray(extras.lockedTableRows)) {
+    return extras.lockedTableRows.map((item, idx) => ({
+      ...item,
+      sourceCourseIndex: item.sourceCourseIndex ?? item.courseIndex,
+      courseIndex: Math.floor(idx / 4) + 1,
+      stepInCourse: ((idx % 4) + 1) as 1 | 2 | 3 | 4,
+      globalStepIndex: idx + 1,
+    }));
+  }
+
   const effectiveRows = applyTableSkipOverridesToRows(rows, extras?.tableSkipOverrides);
   const baseExpanded = buildExpandedFourStepRows(
     effectiveRows,
@@ -532,12 +587,17 @@ export function generateAutoRackTensionRows(
 
 export function loadPatternTableExtras(pattern: PatternData): PatternTableExtras {
   const autoRows = generateAutoRackTensionRows(pattern.rows, pattern.guideBars);
+  const patternExtras = pattern.tableExtras;
 
   try {
     const raw = localStorage.getItem(`${TABLE_EXTRAS_STORAGE_PREFIX}${pattern.id}`);
     if (raw) {
       const parsed = JSON.parse(raw);
       const isManual = Boolean(parsed.isRackManualOverride);
+      const isTableManual =
+        typeof parsed.isTableManualOverride === 'boolean'
+          ? parsed.isTableManualOverride
+          : Boolean(patternExtras?.isTableManualOverride);
       return {
         mayDensity:
           typeof parsed.mayDensity === 'string'
@@ -552,21 +612,27 @@ export function loadPatternTableExtras(pattern: PatternData): PatternTableExtras
           typeof parsed.rackNote === 'string'
             ? parsed.rackNote
             : pattern.rackNote ?? '',
+        isTableManualOverride: isTableManual,
+        lockedTableRows: Array.isArray(parsed.lockedTableRows)
+          ? parsed.lockedTableRows
+          : Array.isArray(patternExtras?.lockedTableRows)
+          ? patternExtras.lockedTableRows
+          : [],
         manualTableOverrides:
           parsed.manualTableOverrides && typeof parsed.manualTableOverrides === 'object'
             ? parsed.manualTableOverrides
-            : {},
+            : patternExtras?.manualTableOverrides || {},
         tableSkipOverrides:
           parsed.tableSkipOverrides && typeof parsed.tableSkipOverrides === 'object'
             ? parsed.tableSkipOverrides
-            : {},
+            : patternExtras?.tableSkipOverrides || {},
         deletedStepKeys: Array.isArray(parsed.deletedStepKeys)
           ? parsed.deletedStepKeys
-          : [],
+          : patternExtras?.deletedStepKeys || [],
         insertedStepsAfter:
           parsed.insertedStepsAfter && typeof parsed.insertedStepsAfter === 'object'
             ? parsed.insertedStepsAfter
-            : {},
+            : patternExtras?.insertedStepsAfter || {},
       };
     }
   } catch {
@@ -582,10 +648,14 @@ export function loadPatternTableExtras(pattern: PatternData): PatternTableExtras
         ? pattern.rackTensionRows
         : autoRows,
     rackNote: pattern.rackNote ?? '',
-    manualTableOverrides: {},
-    tableSkipOverrides: {},
-    deletedStepKeys: [],
-    insertedStepsAfter: {},
+    isTableManualOverride: Boolean(patternExtras?.isTableManualOverride),
+    lockedTableRows: Array.isArray(patternExtras?.lockedTableRows)
+      ? patternExtras.lockedTableRows
+      : [],
+    manualTableOverrides: patternExtras?.manualTableOverrides || {},
+    tableSkipOverrides: patternExtras?.tableSkipOverrides || {},
+    deletedStepKeys: patternExtras?.deletedStepKeys || [],
+    insertedStepsAfter: patternExtras?.insertedStepsAfter || {},
   };
 }
 
