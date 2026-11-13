@@ -2,11 +2,11 @@ import { GuideBarConfig, GuideBarId, PatternData, PatternRow, RackTensionRow } f
 import { GuideBarCalculationResult } from './fabricCalculator';
 import {
   ALL_GB_IDS,
-  applyManualTableOverrides,
-  buildExpandedFourStepRows,
+  buildFinalFourStepRows,
   computePatternDifficulty,
   loadPatternTableExtras,
   loadSavedTableSettings,
+  wrapCanvasText,
 } from './patternTableCalc';
 
 export interface PdfReportParams {
@@ -195,16 +195,8 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
 
   const tableSettings = loadSavedTableSettings();
   const tableExtras = loadPatternTableExtras(pattern);
-  const expandedRows = applyManualTableOverrides(
-    buildExpandedFourStepRows(
-      rows,
-      tableSettings.barModes,
-      tableSettings.loopWidth,
-      tableSettings.skipBehavior,
-      tableSettings.descendingStartMode
-    ),
-    tableExtras.manualTableOverrides
-  );
+  const expandedRows = buildFinalFourStepRows(rows, tableSettings, tableExtras);
+  const rackNote = (tableExtras.rackNote ?? pattern.rackNote ?? '').trim();
   const mayDensity = (pattern.mayDensity ?? tableExtras.mayDensity ?? '').trim();
   const mayDisplay = mayDensity !== '' ? `${mayDensity.replace('.', ',')} May` : 'Belirtilmedi';
 
@@ -252,7 +244,19 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
   const rackHeaderH = 28;
   const rackRowH = 25;
   const visibleRackCount = Math.max(1, rawRackRows.length);
-  const rightMetaContentH = rackTitleH + rackHeaderH + visibleRackCount * rackRowH + 14;
+
+  let rackNoteLines: string[] = [];
+  if (rackNote !== '') {
+    page1.ctx.font = '600 12px "Plus Jakarta Sans", sans-serif';
+    rackNoteLines = wrapCanvasText(page1.ctx, rackNote, rightMetaW - 40);
+  }
+  const rackNoteBoxH = rackNoteLines.length > 0 ? 28 + rackNoteLines.length * 16 + 8 : 0;
+  const rightMetaContentH =
+    rackTitleH +
+    rackHeaderH +
+    visibleRackCount * rackRowH +
+    (rackNoteBoxH > 0 ? rackNoteBoxH + 10 : 0) +
+    14;
 
   const metaBandH = Math.max(leftMetaContentH, rightMetaContentH);
 
@@ -472,6 +476,26 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
     ctx1.stroke();
   });
 
+  if (rackNoteLines.length > 0) {
+    const noteY = rackTableY + rackTotalH + 8;
+    ctx1.fillStyle = '#0F172A';
+    ctx1.fillRect(rackInnerX, noteY, rackInnerW, rackNoteBoxH);
+    ctx1.strokeStyle = '#B45309';
+    ctx1.lineWidth = 1;
+    ctx1.strokeRect(rackInnerX, noteY, rackInnerW, rackNoteBoxH);
+
+    ctx1.fillStyle = '#FBBF24';
+    ctx1.font = 'bold 11.5px "Plus Jakarta Sans", sans-serif';
+    ctx1.textAlign = 'left';
+    ctx1.fillText('NOT:', rackInnerX + 10, noteY + 18);
+
+    ctx1.fillStyle = '#F1F5F9';
+    ctx1.font = '600 12px "Plus Jakarta Sans", sans-serif';
+    rackNoteLines.forEach((line, lIdx) => {
+      ctx1.fillText(line, rackInnerX + 10, noteY + 35 + lIdx * 16);
+    });
+  }
+
   // Simulation / Technical Diagram Visual Area on Page 1 (Always Single Page, Max Aspect-Preserving Scale + Tmktekstil.com Side Watermark)
   const crop = getTrimmedSourceBounds(sourceCanvas);
 
@@ -554,14 +578,15 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
   // SUBSEQUENT PAGES: DEDICATED SPACIOUS 4-STEP MACHINE PATTERN TABLE
   // Automatically paginates across as many A4 pages as needed for crisp reading!
   // =========================================================================
-  if (rows.length > 0) {
+  const totalSteps = expandedRows.length;
+  if (totalSteps > 0) {
     const tableTitleY = HEADER_Y + HEADER_H + 32;
     const tableTopY = tableTitleY + 14;
     const tableMaxH = PAGE_H - FOOTER_H - 18 - tableTopY;
 
     const tableHeaderH = 36;
     const stepRowH = 24; // Large, ultra-legible 24px step row (96px per course!)
-    const coursesPerCol = Math.max(1, Math.floor((tableMaxH - tableHeaderH) / (4 * stepRowH)));
+    const stepsPerCol = Math.max(1, Math.floor((tableMaxH - tableHeaderH) / stepRowH));
 
     // Choose spacious column count based on active guide bars so numbers & ATLA badges never squeeze
     const courseColW = 54;
@@ -576,13 +601,16 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
       activeGbList.length <= 2 ? 3 : activeGbList.length <= 4 ? 2 : 2;
     const colsPerFullPage = Math.min(maxPreferredCols, maxColsByWidth);
 
-    const coursesPerPage = coursesPerCol * colsPerFullPage;
-    const totalTablePages = Math.max(1, Math.ceil(rows.length / coursesPerPage));
+    const stepsPerPage = stepsPerCol * colsPerFullPage;
+    const totalTablePages = Math.max(1, Math.ceil(totalSteps / stepsPerPage));
 
     for (let tPageIdx = 0; tPageIdx < totalTablePages; tPageIdx++) {
-      const pageStartCourse = tPageIdx * coursesPerPage;
-      const pageEndCourse = Math.min(rows.length, pageStartCourse + coursesPerPage);
-      const pageCourseCount = pageEndCourse - pageStartCourse;
+      const pageStartStep = tPageIdx * stepsPerPage;
+      const pageEndStep = Math.min(totalSteps, pageStartStep + stepsPerPage);
+      const pageStepCount = pageEndStep - pageStartStep;
+
+      const firstCourseOnPage = expandedRows[pageStartStep]?.courseIndex ?? 1;
+      const lastCourseOnPage = expandedRows[pageEndStep - 1]?.courseIndex ?? rows.length;
 
       const tPage = createPdfPageCanvas();
       pageCanvases.push(tPage.canvas);
@@ -603,7 +631,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
       tCtx.font = 'bold 16px "Plus Jakarta Sans", sans-serif';
       tCtx.textAlign = 'left';
       tCtx.fillText(
-        `4 ADIMLI MAKİNE DESEN TABLOSU  (Kurs ${pageStartCourse + 1} – ${pageEndCourse}  /  Toplam ${rows.length} Kurs)`,
+        `4 ADIMLI MAKİNE DESEN TABLOSU  (Kurs ${firstCourseOnPage} – ${lastCourseOnPage}  /  Toplam ${totalSteps} Adım)`,
         PAD_X,
         tableTitleY
       );
@@ -623,22 +651,22 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
 
       const numColsThisPage = Math.max(
         1,
-        Math.min(colsPerFullPage, Math.ceil(pageCourseCount / coursesPerCol))
+        Math.min(colsPerFullPage, Math.ceil(pageStepCount / stepsPerCol))
       );
-      const colCoursesCount = Math.ceil(pageCourseCount / numColsThisPage);
+      const colStepsCount = Math.ceil(pageStepCount / numColsThisPage);
       const blockWidth = Math.floor(
         (AVAIL_W - blockGapX * (numColsThisPage - 1)) / numColsThisPage
       );
       const barColW = (blockWidth - courseColW) / activeGbList.length;
 
       for (let colIdx = 0; colIdx < numColsThisPage; colIdx++) {
-        const startC = pageStartCourse + colIdx * colCoursesCount;
-        const endC = Math.min(pageEndCourse, startC + colCoursesCount);
-        if (startC >= pageEndCourse) break;
+        const startIdx = pageStartStep + colIdx * colStepsCount;
+        const endIdx = Math.min(pageEndStep, startIdx + colStepsCount);
+        if (startIdx >= pageEndStep) break;
 
         const bx = PAD_X + colIdx * (blockWidth + blockGapX);
         const by = tableTopY;
-        const sliceSteps = expandedRows.slice(startC * 4, endC * 4);
+        const sliceSteps = expandedRows.slice(startIdx, endIdx);
         const colHeight = tableHeaderH + sliceSteps.length * stepRowH;
 
         tCtx.fillStyle = '#080C14';
@@ -691,15 +719,20 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
         // Step Rows
         sliceSteps.forEach((item, rOffset) => {
           const ry = by + tableHeaderH + rOffset * stepRowH;
-          const isCourseStart = item.stepInCourse === 1;
-          const isCourseEnd = item.stepInCourse === 4;
-          const isEvenStep = item.stepInCourse % 2 === 0;
+          const isInserted = Boolean(item.isInserted);
+          const isCourseStart = item.stepInCourse === 1 && !isInserted;
+          const isCourseEnd = item.stepInCourse === 4 && !isInserted;
+          const isEvenStep = isInserted ? false : item.stepInCourse % 2 === 0;
 
-          tCtx.fillStyle = isEvenStep ? '#111827' : '#0B0F17';
+          tCtx.fillStyle = isInserted ? '#1E1B4B' : isEvenStep ? '#111827' : '#0B0F17';
           tCtx.fillRect(bx + 1, ry, blockWidth - 2, stepRowH);
 
           tCtx.textAlign = 'center';
-          if (isCourseStart) {
+          if (isInserted) {
+            tCtx.fillStyle = '#A5B4FC';
+            tCtx.font = 'bold 12px "Plus Jakarta Sans", sans-serif';
+            tCtx.fillText(item.customLabel || '+Ek', bx + courseColW / 2, ry + 17.5);
+          } else if (isCourseStart) {
             tCtx.fillStyle = '#38BDF8';
             tCtx.font = 'bold 15px "JetBrains Mono", monospace';
             tCtx.fillText(String(item.courseIndex), bx + courseColW / 2, ry + 17.5);
@@ -720,7 +753,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
               tCtx.fillStyle = '#F59E0B';
               tCtx.fillRect(cx + 1, ry, 3.5, stepRowH);
 
-              if (isCourseStart && barColW >= 72) {
+              if ((isCourseStart || isInserted) && barColW >= 72) {
                 tCtx.fillStyle = '#FDE68A';
                 tCtx.font = 'bold 15px "JetBrains Mono", monospace';
                 tCtx.textAlign = 'center';
@@ -743,7 +776,11 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
                 tCtx.fillText(String(val), cx + barColW / 2, ry + 17.5);
               }
             } else {
-              tCtx.fillStyle = isCourseStart ? (gbMap[gbId]?.color || '#F8FAFC') : '#E2E8F0';
+              tCtx.fillStyle = isInserted
+                ? '#E0E7FF'
+                : isCourseStart
+                ? gbMap[gbId]?.color || '#F8FAFC'
+                : '#E2E8F0';
               tCtx.font = isCourseStart
                 ? 'bold 15.5px "JetBrains Mono", monospace'
                 : 'bold 14.5px "JetBrains Mono", monospace';

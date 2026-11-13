@@ -69,6 +69,7 @@ export async function savePatternToCloud(pattern: PatternData): Promise<void> {
       ...(pattern.mayDensity !== undefined ? { mayDensity: pattern.mayDensity } : {}),
       ...(pattern.rackTensionRows !== undefined ? { rackTensionRows: pattern.rackTensionRows } : {}),
       ...(pattern.isRackManualOverride !== undefined ? { isRackManualOverride: pattern.isRackManualOverride } : {}),
+      ...(pattern.rackNote !== undefined ? { rackNote: pattern.rackNote } : {}),
     };
 
     // Always update local cache immediately for instant offline/mobile UX

@@ -89,6 +89,7 @@ export interface PatternData {
   mayDensity?: string;
   rackTensionRows?: RackTensionRow[];
   isRackManualOverride?: boolean;
+  rackNote?: string;
 }
 
 export type ActiveTab = 'simulation' | 'editor' | 'library' | 'machine' | 'analysis' | 'table' | 'logs';

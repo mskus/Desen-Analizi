@@ -25,12 +25,22 @@ export const ALL_DOUBLE_MODES: Record<GuideBarId, StitchLoopMode> = {
 };
 
 export interface ComputedStepRow {
+  rowKey: string;
   courseIndex: number;
   stepInCourse: 1 | 2 | 3 | 4;
   globalStepIndex: number;
   values: Record<GuideBarId, number>;
   sourceValues: Record<GuideBarId, number>;
   skippedBars: Partial<Record<GuideBarId, boolean>>;
+  isInserted?: boolean;
+  customLabel?: string;
+}
+
+export interface CustomTableStepRow {
+  id: string;
+  label?: string;
+  values: Record<GuideBarId, number>;
+  skippedBars?: Partial<Record<GuideBarId, boolean>>;
 }
 
 export interface TableCalcSettings {
@@ -251,8 +261,10 @@ export function buildExpandedFourStepRows(
 
     ([0, 1, 2, 3] as const).forEach((stepIdx) => {
       const stepInCourse = (stepIdx + 1) as 1 | 2 | 3 | 4;
+      const courseIndex = row.courseIndex || rIdx + 1;
       result.push({
-        courseIndex: row.courseIndex || rIdx + 1,
+        rowKey: `${courseIndex}-${stepInCourse}`,
+        courseIndex,
         stepInCourse,
         globalStepIndex: rIdx * 4 + stepIdx + 1,
         values: {
@@ -276,7 +288,31 @@ export interface PatternTableExtras {
   mayDensity: string;
   rackTensionRows: RackTensionRow[];
   isRackManualOverride: boolean;
+  rackNote?: string;
   manualTableOverrides?: Record<string, number>;
+  tableSkipOverrides?: Record<string, boolean>;
+  deletedStepKeys?: string[];
+  insertedStepsAfter?: Record<string, CustomTableStepRow[]>;
+}
+
+export function applyTableSkipOverridesToRows(
+  rows: PatternData['rows'],
+  tableSkipOverrides?: Record<string, boolean>
+): PatternData['rows'] {
+  if (!rows || rows.length === 0) return rows;
+  if (!tableSkipOverrides || Object.keys(tableSkipOverrides).length === 0) return rows;
+  return rows.map((r, rIdx) => {
+    const courseIndex = r.courseIndex || rIdx + 1;
+    let nextSkips: Partial<Record<GuideBarId, boolean>> | null = null;
+    ALL_GB_IDS.forEach((gbId) => {
+      const k = `${courseIndex}-${gbId}`;
+      if (k in tableSkipOverrides) {
+        if (!nextSkips) nextSkips = { ...(r.skips || {}) };
+        nextSkips[gbId] = Boolean(tableSkipOverrides[k]);
+      }
+    });
+    return nextSkips ? { ...r, skips: nextSkips } : r;
+  });
 }
 
 export function applyManualTableOverrides(
@@ -287,8 +323,14 @@ export function applyManualTableOverrides(
   return expandedRows.map((item) => {
     let nextValues: Record<GuideBarId, number> | null = null;
     ALL_GB_IDS.forEach((gbId) => {
-      const key = `${item.courseIndex}-${item.stepInCourse}-${gbId}`;
-      const val = overrides[key];
+      const primaryKey = `${item.rowKey}-${gbId}`;
+      const legacyKey = `${item.courseIndex}-${item.stepInCourse}-${gbId}`;
+      const val =
+        typeof overrides[primaryKey] === 'number'
+          ? overrides[primaryKey]
+          : !item.isInserted && typeof overrides[legacyKey] === 'number'
+          ? overrides[legacyKey]
+          : undefined;
       if (typeof val === 'number' && !isNaN(val)) {
         if (!nextValues) nextValues = { ...item.values };
         nextValues[gbId] = val;
@@ -296,6 +338,117 @@ export function applyManualTableOverrides(
     });
     return nextValues ? { ...item, values: nextValues } : item;
   });
+}
+
+export function buildFinalFourStepRows(
+  rows: PatternData['rows'],
+  settings: Pick<TableCalcSettings, 'barModes' | 'loopWidth' | 'skipBehavior' | 'descendingStartMode'>,
+  extras?: Partial<PatternTableExtras>
+): ComputedStepRow[] {
+  const effectiveRows = applyTableSkipOverridesToRows(rows, extras?.tableSkipOverrides);
+  const baseExpanded = buildExpandedFourStepRows(
+    effectiveRows,
+    settings.barModes,
+    settings.loopWidth,
+    settings.skipBehavior,
+    settings.descendingStartMode
+  );
+
+  const deletedSet = new Set(extras?.deletedStepKeys || []);
+  const insertedMap = extras?.insertedStepsAfter || {};
+  const result: ComputedStepRow[] = [];
+  const visitedAnchors = new Set<string>();
+
+  const pushInsertedAfter = (anchorKey: string, refCourseIndex: number) => {
+    if (visitedAnchors.has(anchorKey)) return;
+    visitedAnchors.add(anchorKey);
+    const list = insertedMap[anchorKey];
+    if (!Array.isArray(list) || list.length === 0) return;
+
+    list.forEach((custom) => {
+      const vals: Record<GuideBarId, number> = {
+        GB1: custom.values?.GB1 ?? 0,
+        GB2: custom.values?.GB2 ?? 0,
+        GB3: custom.values?.GB3 ?? 0,
+        GB4: custom.values?.GB4 ?? 0,
+        GB5: custom.values?.GB5 ?? 0,
+        GB6: custom.values?.GB6 ?? 0,
+      };
+      result.push({
+        rowKey: custom.id,
+        courseIndex: refCourseIndex,
+        stepInCourse: 1,
+        globalStepIndex: result.length + 1,
+        values: vals,
+        sourceValues: { ...vals },
+        skippedBars: { ...(custom.skippedBars || {}) },
+        isInserted: true,
+        customLabel: custom.label || '+Ek',
+      });
+      pushInsertedAfter(custom.id, refCourseIndex);
+    });
+  };
+
+  pushInsertedAfter('__START__', 1);
+
+  baseExpanded.forEach((item) => {
+    if (!deletedSet.has(item.rowKey)) {
+      result.push({
+        ...item,
+        globalStepIndex: result.length + 1,
+      });
+    }
+    pushInsertedAfter(item.rowKey, item.courseIndex);
+  });
+
+  const withOverrides = applyManualTableOverrides(result, extras?.manualTableOverrides);
+  return withOverrides.map((item, idx) => ({
+    ...item,
+    globalStepIndex: idx + 1,
+  }));
+}
+
+export function wrapCanvasText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string[] {
+  const lines: string[] = [];
+  const paragraphs = text.split(/\r?\n/);
+  paragraphs.forEach((para) => {
+    const trimmed = para.trim();
+    if (!trimmed) {
+      if (lines.length > 0) lines.push('');
+      return;
+    }
+    const words = trimmed.split(/\s+/);
+    let currentLine = '';
+    words.forEach((word) => {
+      const candidate = currentLine ? `${currentLine} ${word}` : word;
+      if (ctx.measureText(candidate).width <= maxWidth) {
+        currentLine = candidate;
+      } else {
+        if (currentLine) lines.push(currentLine);
+        if (ctx.measureText(word).width <= maxWidth) {
+          currentLine = word;
+        } else {
+          // Break overly long single token
+          let chunk = '';
+          for (const ch of word) {
+            if (ctx.measureText(chunk + ch).width <= maxWidth) {
+              chunk += ch;
+            } else {
+              if (chunk) lines.push(chunk);
+              chunk = ch;
+            }
+          }
+          currentLine = chunk;
+        }
+      }
+    });
+    if (currentLine) lines.push(currentLine);
+  });
+  return lines;
 }
 
 const TABLE_EXTRAS_STORAGE_PREFIX = 'warpknitt_table_extras_';
@@ -389,9 +542,24 @@ export function loadPatternTableExtras(pattern: PatternData): PatternTableExtras
           isManual && Array.isArray(parsed.rackTensionRows) && parsed.rackTensionRows.length > 0
             ? parsed.rackTensionRows
             : autoRows,
+        rackNote:
+          typeof parsed.rackNote === 'string'
+            ? parsed.rackNote
+            : pattern.rackNote ?? '',
         manualTableOverrides:
           parsed.manualTableOverrides && typeof parsed.manualTableOverrides === 'object'
             ? parsed.manualTableOverrides
+            : {},
+        tableSkipOverrides:
+          parsed.tableSkipOverrides && typeof parsed.tableSkipOverrides === 'object'
+            ? parsed.tableSkipOverrides
+            : {},
+        deletedStepKeys: Array.isArray(parsed.deletedStepKeys)
+          ? parsed.deletedStepKeys
+          : [],
+        insertedStepsAfter:
+          parsed.insertedStepsAfter && typeof parsed.insertedStepsAfter === 'object'
+            ? parsed.insertedStepsAfter
             : {},
       };
     }
@@ -407,7 +575,11 @@ export function loadPatternTableExtras(pattern: PatternData): PatternTableExtras
       isPatternManual && Array.isArray(pattern.rackTensionRows) && pattern.rackTensionRows.length > 0
         ? pattern.rackTensionRows
         : autoRows,
+    rackNote: pattern.rackNote ?? '',
     manualTableOverrides: {},
+    tableSkipOverrides: {},
+    deletedStepKeys: [],
+    insertedStepsAfter: {},
   };
 }
 

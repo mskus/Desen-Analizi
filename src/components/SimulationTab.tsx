@@ -3,11 +3,11 @@ import { PatternData, GuideBarId, GuideBarConfig, SafetyConfig, PatternRow } fro
 import { calculateGuideBarMetrics, GuideBarCalcBadge } from '../utils/fabricCalculator';
 import {
   ALL_GB_IDS,
-  buildExpandedFourStepRows,
+  buildFinalFourStepRows,
   loadSavedTableSettings,
   loadPatternTableExtras,
   computePatternDifficulty,
-  applyManualTableOverrides,
+  wrapCanvasText,
 } from '../utils/patternTableCalc';
 import { buildHighResPatternPdf, getTrimmedSourceBounds } from '../utils/pdfReport';
 import {
@@ -1351,16 +1351,8 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
 
     const tableSettings = loadSavedTableSettings();
     const tableExtras = loadPatternTableExtras(pattern);
-    const expandedRows = applyManualTableOverrides(
-      buildExpandedFourStepRows(
-        rows,
-        tableSettings.barModes,
-        tableSettings.loopWidth,
-        tableSettings.skipBehavior,
-        tableSettings.descendingStartMode
-      ),
-      tableExtras.manualTableOverrides
-    );
+    const expandedRows = buildFinalFourStepRows(rows, tableSettings, tableExtras);
+    const rackNote = (tableExtras.rackNote ?? pattern.rackNote ?? '').trim();
     const mayDensity = (pattern.mayDensity ?? tableExtras.mayDensity ?? '').trim();
     const mayDisplay = mayDensity !== '' ? `${mayDensity.replace('.', ',')} May` : 'Belirtilmedi';
     const rawRackRows =
@@ -1435,31 +1427,51 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     const rackHeaderH = 23;
     const rackRowH = 20;
     const visibleRackCount = Math.max(1, displayRackRows.length);
-    const rightMetaContentH = rackTitleH + rackHeaderH + visibleRackCount * rackRowH + 8;
+
+    let rackNoteLines: string[] = [];
+    if (rackNote !== '') {
+      const mCanvas = document.createElement('canvas');
+      const mCtx = mCanvas.getContext('2d');
+      if (mCtx) {
+        mCtx.font = '600 11px "Plus Jakarta Sans", sans-serif';
+        rackNoteLines = wrapCanvasText(mCtx, rackNote, rightMetaW - 32);
+      } else {
+        rackNoteLines = rackNote.split(/\r?\n/).filter(Boolean);
+      }
+    }
+    const rackNoteBoxH = rackNoteLines.length > 0 ? 22 + rackNoteLines.length * 14 + 6 : 0;
+    const rightMetaContentH =
+      rackTitleH +
+      rackHeaderH +
+      visibleRackCount * rackRowH +
+      (rackNoteBoxH > 0 ? rackNoteBoxH + 8 : 0) +
+      8;
 
     const metaBandH = Math.max(leftMetaContentH, rightMetaContentH) + 8;
 
     // 2. 4-Step Machine Pattern Table dimensions (larger, ultra-legible typography!)
+    const totalSteps = expandedRows.length;
     const tableAvailW = useSideBySideMain ? availWidth - simDrawW - gapX : availWidth;
     const minBlockW = Math.max(155, 36 + activeGbList.length * 56);
     const maxFitCols = Math.max(
       1,
       Math.min(useSideBySideMain ? 5 : 6, Math.floor((tableAvailW + 8) / (minBlockW + 8)))
     );
+    const approxCoursesForCols = Math.max(rows.length, Math.ceil(totalSteps / 4));
     const numBlockCols =
-      rows.length === 0
+      totalSteps === 0
         ? 1
-        : rows.length <= 10
+        : totalSteps <= 40
         ? 1
-        : Math.min(maxFitCols, Math.max(1, Math.ceil(rows.length / 8)));
+        : Math.min(maxFitCols, Math.max(1, Math.ceil(approxCoursesForCols / 8)));
 
-    const coursesPerCol = Math.max(1, Math.ceil(rows.length / numBlockCols));
+    const stepsPerCol = Math.max(1, Math.ceil(totalSteps / numBlockCols));
     const blockGapX = 8;
     const blockWidth = Math.floor((tableAvailW - blockGapX * (numBlockCols - 1)) / numBlockCols);
     const tableHeaderH = 24;
     const stepRowH = 16.5;
-    const tableBodyH = coursesPerCol * 4 * stepRowH;
-    const tableSectionH = 24 + (rows.length > 0 ? tableHeaderH + tableBodyH : 36);
+    const tableBodyH = stepsPerCol * stepRowH;
+    const tableSectionH = 24 + (totalSteps > 0 ? tableHeaderH + tableBodyH : 36);
 
     const mainSectionTopY = headerBannerH + metaBandH + 6;
     const mainSectionH = useSideBySideMain
@@ -1733,6 +1745,27 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       ctx.stroke();
     });
 
+    // Optional Note box directly below Rack Tansiyon Tablosu
+    if (rackNoteLines.length > 0) {
+      const noteY = rackTableY + rackTotalH + 6;
+      ctx.fillStyle = '#0F172A';
+      ctx.fillRect(rackInnerX, noteY, rackInnerW, rackNoteBoxH);
+      ctx.strokeStyle = '#B45309';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rackInnerX, noteY, rackInnerW, rackNoteBoxH);
+
+      ctx.fillStyle = '#FBBF24';
+      ctx.font = 'bold 10px "Plus Jakarta Sans", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('NOT:', rackInnerX + 8, noteY + 14);
+
+      ctx.fillStyle = '#F1F5F9';
+      ctx.font = '600 11px "Plus Jakarta Sans", sans-serif';
+      rackNoteLines.forEach((line, lIdx) => {
+        ctx.fillText(line, rackInnerX + 8, noteY + 29 + lIdx * 14);
+      });
+    }
+
     // 3. MAIN AREA: TRIMMED SIMULATION PREVIEW + 4-STEP MACHINE PATTERN TABLE
     const simX = useSideBySideMain ? padX : Math.floor((unscaledWidth - simDrawW) / 2);
     const simY = mainSectionTopY;
@@ -1758,7 +1791,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     ctx.font = 'bold 12px "Plus Jakarta Sans", sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(
-      `4 ADIMLI MAKİNE DESEN TABLOSU (${rows.length} Kurs × 4 = ${expandedRows.length} Adım)`,
+      `4 ADIMLI MAKİNE DESEN TABLOSU (${rows.length} Kurs · ${totalSteps} Adım)`,
       tableAreaX,
       tableTitleY + 13
     );
@@ -1779,18 +1812,18 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
 
     const tableTopY = tableTitleY + 21;
 
-    if (rows.length > 0) {
+    if (totalSteps > 0) {
       const courseColW = 36;
       const barColW = (blockWidth - courseColW) / activeGbList.length;
 
       for (let colIdx = 0; colIdx < numBlockCols; colIdx++) {
-        const startCourse = colIdx * coursesPerCol;
-        const endCourse = Math.min(rows.length, startCourse + coursesPerCol);
-        if (startCourse >= rows.length) break;
+        const startIdx = colIdx * stepsPerCol;
+        const endIdx = Math.min(totalSteps, startIdx + stepsPerCol);
+        if (startIdx >= totalSteps) break;
 
         const bx = tableAreaX + colIdx * (blockWidth + blockGapX);
         const by = tableTopY;
-        const sliceStepRows = expandedRows.slice(startCourse * 4, endCourse * 4);
+        const sliceStepRows = expandedRows.slice(startIdx, endIdx);
         const colHeight = tableHeaderH + sliceStepRows.length * stepRowH;
 
         ctx.fillStyle = '#080C14';
@@ -1843,15 +1876,20 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
         // Step Rows
         sliceStepRows.forEach((item, rOffset) => {
           const ry = by + tableHeaderH + rOffset * stepRowH;
-          const isCourseStart = item.stepInCourse === 1;
-          const isCourseEnd = item.stepInCourse === 4;
-          const isEvenStep = item.stepInCourse % 2 === 0;
+          const isInserted = Boolean(item.isInserted);
+          const isCourseStart = item.stepInCourse === 1 && !isInserted;
+          const isCourseEnd = item.stepInCourse === 4 && !isInserted;
+          const isEvenStep = isInserted ? false : item.stepInCourse % 2 === 0;
 
-          ctx.fillStyle = isEvenStep ? '#111827' : '#0B0F17';
+          ctx.fillStyle = isInserted ? '#1E1B4B' : isEvenStep ? '#111827' : '#0B0F17';
           ctx.fillRect(bx + 1, ry, blockWidth - 2, stepRowH);
 
           ctx.textAlign = 'center';
-          if (isCourseStart) {
+          if (isInserted) {
+            ctx.fillStyle = '#A5B4FC';
+            ctx.font = 'bold 9.5px "Plus Jakarta Sans", sans-serif';
+            ctx.fillText(item.customLabel || '+Ek', bx + courseColW / 2, ry + 12.5);
+          } else if (isCourseStart) {
             ctx.fillStyle = '#38BDF8';
             ctx.font = 'bold 11px "JetBrains Mono", monospace';
             ctx.fillText(String(item.courseIndex), bx + courseColW / 2, ry + 12.5);
@@ -1872,7 +1910,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
               ctx.fillStyle = '#F59E0B';
               ctx.fillRect(cx + 1, ry, 2.5, stepRowH);
 
-              if (isCourseStart && barColW >= 46) {
+              if ((isCourseStart || isInserted) && barColW >= 46) {
                 ctx.fillStyle = '#FDE68A';
                 ctx.font = 'bold 11px "JetBrains Mono", monospace';
                 ctx.textAlign = 'center';
@@ -1895,7 +1933,11 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
                 ctx.fillText(String(val), cx + barColW / 2, ry + 12.5);
               }
             } else {
-              ctx.fillStyle = isCourseStart ? (gbMap[gbId]?.color || '#F8FAFC') : '#E2E8F0';
+              ctx.fillStyle = isInserted
+                ? '#E0E7FF'
+                : isCourseStart
+                ? gbMap[gbId]?.color || '#F8FAFC'
+                : '#E2E8F0';
               ctx.font = isCourseStart
                 ? 'bold 11px "JetBrains Mono", monospace'
                 : 'bold 10.5px "JetBrains Mono", monospace';

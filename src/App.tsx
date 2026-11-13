@@ -293,13 +293,15 @@ export default function App() {
   const handleUpdateTableExtras = (
     mayDensity: string,
     rackTensionRows: RackTensionRow[],
-    isRackManualOverride: boolean
+    isRackManualOverride: boolean,
+    rackNote?: string
   ) => {
     setCurrentPattern((prev) => ({
       ...prev,
       mayDensity,
       rackTensionRows,
       isRackManualOverride,
+      ...(rackNote !== undefined ? { rackNote } : {}),
     }));
   };
 
