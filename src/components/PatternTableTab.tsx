@@ -24,6 +24,7 @@ import {
   ALL_GB_IDS,
   ALL_DOUBLE_MODES,
   DEFAULT_HRD6_MODES,
+  DEFAULT_DESCENDING_MODES,
   StitchLoopMode,
   SkipBehaviorMode,
   DescendingStartMode,
@@ -78,9 +79,10 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   const [barModes, setBarModes] = useState<Record<GuideBarId, StitchLoopMode>>(initialSettings.barModes);
   const [skipBehavior, setSkipBehavior] = useState<SkipBehaviorMode>(initialSettings.skipBehavior);
   const [loopWidth, setLoopWidth] = useState<number>(initialSettings.loopWidth);
-  const [descendingStartMode, setDescendingStartMode] = useState<DescendingStartMode>(
-    initialSettings.descendingStartMode
-  );
+  const [descendingStartModes, setDescendingStartModes] = useState<
+    Record<GuideBarId, DescendingStartMode>
+  >(initialSettings.descendingStartModes);
+  const [selectedDescendingTarget, setSelectedDescendingTarget] = useState<'ALL' | GuideBarId>('ALL');
   const [showAllBars, setShowAllBars] = useState<boolean>(false);
   const [selectedCourse, setSelectedCourse] = useState<number | null>(1);
   const [selectedStepKey, setSelectedStepKey] = useState<string | null>('1-1');
@@ -163,8 +165,8 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   }, [pattern.rows, pattern.guideBars, isRackManualOverride]);
 
   useEffect(() => {
-    saveTableSettings({ barModes, skipBehavior, loopWidth, descendingStartMode });
-  }, [barModes, skipBehavior, loopWidth, descendingStartMode]);
+    saveTableSettings({ barModes, skipBehavior, loopWidth, descendingStartModes });
+  }, [barModes, skipBehavior, loopWidth, descendingStartModes]);
 
   const persistExtras = (patch?: {
     mayDensity?: string;
@@ -344,7 +346,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   const finalExpandedRows = useMemo<ComputedStepRow[]>(() => {
     return buildFinalFourStepRows(
       rows,
-      { barModes, loopWidth, skipBehavior, descendingStartMode },
+      { barModes, loopWidth, skipBehavior, descendingStartModes },
       {
         isTableManualOverride,
         lockedTableRows,
@@ -359,7 +361,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     barModes,
     loopWidth,
     skipBehavior,
-    descendingStartMode,
+    descendingStartModes,
     isTableManualOverride,
     lockedTableRows,
     manualTableOverrides,
@@ -710,16 +712,34 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
       const targetCourseIdx = activeSelectedRow.courseIndex;
       const curSkip = Boolean(activeSelectedRow.skippedBars[gbId]);
       const nextSkip = !curSkip;
-      const baseVal =
-        activeSelectedRow.sourceValues?.[gbId] ?? activeSelectedRow.values[gbId] ?? 0;
-      const [newSteps] = computeGuideBarFourStepSeries(
-        [baseVal],
-        [nextSkip],
+
+      // Build course-level series across all courses in finalExpandedRows so cyclic transitions apply accurately
+      const courseOrder: number[] = [];
+      const courseVals: number[] = [];
+      const courseSkips: boolean[] = [];
+      finalExpandedRows.forEach((row) => {
+        if (!courseOrder.includes(row.courseIndex)) {
+          courseOrder.push(row.courseIndex);
+          courseVals.push(row.sourceValues?.[gbId] ?? row.values[gbId] ?? 0);
+          courseSkips.push(
+            row.courseIndex === targetCourseIdx ? nextSkip : Boolean(row.skippedBars?.[gbId])
+          );
+        }
+      });
+
+      const computedSeries = computeGuideBarFourStepSeries(
+        courseVals,
+        courseSkips,
         barModes[gbId],
         loopWidth,
         skipBehavior,
-        descendingStartMode
+        descendingStartModes[gbId]
       );
+      const targetSeriesIdx = courseOrder.indexOf(targetCourseIdx);
+      const newSteps =
+        targetSeriesIdx >= 0 && computedSeries[targetSeriesIdx]
+          ? computedSeries[targetSeriesIdx]
+          : ([0, 0, 0, 0] as [number, number, number, number]);
 
       const nextLocked = cloneComputedRows(finalExpandedRows).map((row) => {
         if (row.courseIndex !== targetCourseIdx) return row;
@@ -978,27 +998,92 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                 </button>
               ))}
 
-              <button
-                type="button"
-                onClick={() =>
-                  setDescendingStartMode((prev) =>
-                    prev === 'low_first' ? 'high_first' : 'low_first'
-                  )
-                }
-                title="İlmek yüksekten aşağı düşerken başlangıç yönünü değiştir"
-                className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer transition-colors flex items-center gap-1 ${
-                  descendingStartMode === 'low_first'
-                    ? 'bg-cyan-950/80 text-cyan-200 border-cyan-700 hover:bg-cyan-900/80'
-                    : 'bg-indigo-950/80 text-indigo-200 border-indigo-700 hover:bg-indigo-900/80'
-                }`}
-              >
-                <ArrowDownUp className="w-3 h-3 shrink-0" />
-                <span>
-                  {descendingStartMode === 'low_first'
+              <div className="flex flex-wrap items-center gap-1 bg-[#0B0F17] px-1.5 py-0.5 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-semibold mr-0.5">Tarak:</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDescendingTarget('ALL')}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                    selectedDescendingTarget === 'ALL'
+                      ? 'bg-sky-700 text-white border-sky-500'
+                      : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
+                  }`}
+                >
+                  Tümü
+                </button>
+                {displayBars.map((gbId) => {
+                  const isSelectedTarget = selectedDescendingTarget === gbId;
+                  const gbColor = pattern.guideBars[gbId]?.color || '#38bdf8';
+                  return (
+                    <button
+                      key={gbId}
+                      type="button"
+                      onClick={() => setSelectedDescendingTarget(gbId)}
+                      title={`Düşüş yönü değişimi için ${gbId} tarağını seç`}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border cursor-pointer transition-colors ${
+                        isSelectedTarget
+                          ? 'bg-cyan-800 text-white border-cyan-400'
+                          : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
+                      }`}
+                      style={
+                        !isSelectedTarget
+                          ? { borderBottomColor: gbColor, borderBottomWidth: '2px' }
+                          : undefined
+                      }
+                    >
+                      {gbId}
+                    </button>
+                  );
+                })}
+
+                {(() => {
+                  const targetBars =
+                    selectedDescendingTarget === 'ALL' ? displayBars : [selectedDescendingTarget];
+                  const allLow = targetBars.every((id) => descendingStartModes[id] === 'low_first');
+                  const allHigh = targetBars.every((id) => descendingStartModes[id] === 'high_first');
+                  const nextMode: DescendingStartMode = allLow ? 'high_first' : 'low_first';
+                  const targetLabel =
+                    selectedDescendingTarget === 'ALL' ? 'Tümü' : selectedDescendingTarget;
+                  const modeLabel = allLow
                     ? 'Düşüş: Düşükten'
-                    : 'Düşüş: Yüksekten'}
-                </span>
-              </button>
+                    : allHigh
+                    ? 'Düşüş: Yüksekten'
+                    : 'Düşüş: Karma';
+
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDescendingStartModes((prev) => {
+                          const updated = { ...prev };
+                          if (selectedDescendingTarget === 'ALL') {
+                            ALL_GB_IDS.forEach((id) => {
+                              updated[id] = nextMode;
+                            });
+                          } else {
+                            updated[selectedDescendingTarget] = nextMode;
+                          }
+                          return updated;
+                        });
+                      }}
+                      title={`${targetLabel} için tüm kurslarda ilmek düşüş başlangıç yönünü değiştir`}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer transition-colors flex items-center gap-1 ml-0.5 ${
+                        allLow
+                          ? 'bg-cyan-950/80 text-cyan-200 border-cyan-700 hover:bg-cyan-900/80'
+                          : allHigh
+                          ? 'bg-indigo-950/80 text-indigo-200 border-indigo-700 hover:bg-indigo-900/80'
+                          : 'bg-amber-950/80 text-amber-200 border-amber-700 hover:bg-amber-900/80'
+                      }`}
+                    >
+                      <ArrowDownUp className="w-3 h-3 shrink-0" />
+                      <span>
+                        {selectedDescendingTarget !== 'ALL' ? `${selectedDescendingTarget} ` : ''}
+                        {modeLabel}
+                      </span>
+                    </button>
+                  );
+                })()}
+              </div>
 
               <button
                 type="button"
@@ -1006,7 +1091,8 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                   setBarModes({ ...DEFAULT_HRD6_MODES });
                   setSkipBehavior('front_skip');
                   setLoopWidth(1);
-                  setDescendingStartMode('low_first');
+                  setDescendingStartModes({ ...DEFAULT_DESCENDING_MODES });
+                  setSelectedDescendingTarget('ALL');
                 }}
                 className="p-1 bg-[#0B0F17] hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-700 rounded cursor-pointer"
                 title="Varsayılana Sıfırla"
@@ -1023,13 +1109,18 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
             const gb = pattern.guideBars[gbId];
             const gbColor = gb?.color || '#3b82f6';
             const currentMode = barModes[gbId];
+            const currentDescMode = descendingStartModes[gbId];
             const isActive = gb?.active ?? true;
 
             return (
               <div
                 key={gbId}
                 className={`bg-[#0B0F17] border rounded-lg p-2 space-y-1.5 ${
-                  isActive ? 'border-slate-700' : 'border-slate-800/70 opacity-60'
+                  selectedDescendingTarget === gbId
+                    ? 'border-cyan-500/80 ring-1 ring-cyan-500/30'
+                    : isActive
+                    ? 'border-slate-700'
+                    : 'border-slate-800/70 opacity-60'
                 }`}
               >
                 <div className="flex items-center justify-between text-xs">
@@ -1061,6 +1152,27 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                 <div className="text-[10px] font-mono text-slate-400 text-center bg-[#111827]/70 rounded py-0.5">
                   {MODE_SHORT_FORMULAS[currentMode]}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDescendingStartModes((prev) => ({
+                      ...prev,
+                      [gbId]: prev[gbId] === 'low_first' ? 'high_first' : 'low_first',
+                    }))
+                  }
+                  title={`${gbId} için yüksekten aşağı düşüş başlangıç yönünü değiştir`}
+                  className={`w-full px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-pointer transition-colors flex items-center justify-center gap-1 ${
+                    currentDescMode === 'low_first'
+                      ? 'bg-cyan-950/70 text-cyan-200 border-cyan-800 hover:bg-cyan-900/70'
+                      : 'bg-indigo-950/70 text-indigo-200 border-indigo-800 hover:bg-indigo-900/70'
+                  }`}
+                >
+                  <ArrowDownUp className="w-2.5 h-2.5 shrink-0" />
+                  <span>
+                    {currentDescMode === 'low_first' ? 'Düşüş: Düşükten' : 'Düşüş: Yüksekten'}
+                  </span>
+                </button>
               </div>
             );
           })}

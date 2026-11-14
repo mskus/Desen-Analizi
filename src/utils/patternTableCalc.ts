@@ -24,6 +24,15 @@ export const ALL_DOUBLE_MODES: Record<GuideBarId, StitchLoopMode> = {
   GB6: 'double_bed',
 };
 
+export const DEFAULT_DESCENDING_MODES: Record<GuideBarId, DescendingStartMode> = {
+  GB1: 'low_first',
+  GB2: 'low_first',
+  GB3: 'low_first',
+  GB4: 'low_first',
+  GB5: 'low_first',
+  GB6: 'low_first',
+};
+
 export interface ComputedStepRow {
   rowKey: string;
   courseIndex: number;
@@ -48,7 +57,8 @@ export interface TableCalcSettings {
   barModes: Record<GuideBarId, StitchLoopMode>;
   skipBehavior: SkipBehaviorMode;
   loopWidth: number;
-  descendingStartMode: DescendingStartMode;
+  descendingStartModes: Record<GuideBarId, DescendingStartMode>;
+  descendingStartMode?: DescendingStartMode;
 }
 
 const TABLE_SETTINGS_STORAGE_KEY = 'warpknitt_table_settings';
@@ -58,6 +68,17 @@ export function loadSavedTableSettings(): TableCalcSettings {
     const raw = localStorage.getItem(TABLE_SETTINGS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      const legacyMode: DescendingStartMode =
+        parsed.descendingStartMode === 'high_first' ? 'high_first' : 'low_first';
+      const rawPerBar = parsed.descendingStartModes || {};
+      const descendingStartModes: Record<GuideBarId, DescendingStartMode> = {
+        GB1: rawPerBar.GB1 === 'high_first' || rawPerBar.GB1 === 'low_first' ? rawPerBar.GB1 : legacyMode,
+        GB2: rawPerBar.GB2 === 'high_first' || rawPerBar.GB2 === 'low_first' ? rawPerBar.GB2 : legacyMode,
+        GB3: rawPerBar.GB3 === 'high_first' || rawPerBar.GB3 === 'low_first' ? rawPerBar.GB3 : legacyMode,
+        GB4: rawPerBar.GB4 === 'high_first' || rawPerBar.GB4 === 'low_first' ? rawPerBar.GB4 : legacyMode,
+        GB5: rawPerBar.GB5 === 'high_first' || rawPerBar.GB5 === 'low_first' ? rawPerBar.GB5 : legacyMode,
+        GB6: rawPerBar.GB6 === 'high_first' || rawPerBar.GB6 === 'low_first' ? rawPerBar.GB6 : legacyMode,
+      };
       return {
         barModes: { ...DEFAULT_HRD6_MODES, ...(parsed.barModes || {}) },
         skipBehavior:
@@ -67,8 +88,8 @@ export function loadSavedTableSettings(): TableCalcSettings {
             ? parsed.skipBehavior
             : 'front_skip',
         loopWidth: parsed.loopWidth === 2 ? 2 : 1,
-        descendingStartMode:
-          parsed.descendingStartMode === 'high_first' ? 'high_first' : 'low_first',
+        descendingStartModes,
+        descendingStartMode: legacyMode,
       };
     }
   } catch {
@@ -78,6 +99,7 @@ export function loadSavedTableSettings(): TableCalcSettings {
     barModes: { ...DEFAULT_HRD6_MODES },
     skipBehavior: 'front_skip',
     loopWidth: 1,
+    descendingStartModes: { ...DEFAULT_DESCENDING_MODES },
     descendingStartMode: 'low_first',
   };
 }
@@ -91,13 +113,13 @@ export function saveTableSettings(settings: TableCalcSettings): void {
 }
 
 /**
- * Computes 4 machine steps per course sequentially for a full guide bar series without mutating pattern data.
- * Tracks Step 4 (`prevEnd`) from course to course (never wrapping last course back into Course 1):
- * - Course 1 always begins cleanly at [N, N+loopWidth, ...].
- * - When staying on the same needle (N === prevN), strictly alternates based on prevEnd so consecutive courses never duplicate.
- * - When moving right (N > prevN), enters from low (N -> N+loopWidth).
- * - When moving left (N < prevN), enters from high (N+loopWidth -> N).
- * - When Atlama (isSkipped) is active, front_skip outputs [a, a, a, b] (e.g. 0,0,0,1 / 1,1,1,0) matching the machine HMI.
+ * Computes 4 machine steps per course cyclically across ALL courses for a full guide bar series without mutating pattern data.
+ * Evaluates every course relative to its preceding course in the full pattern repeat (including Course N -> Course 1):
+ * - Starts from an anchor course where needle position changes (`values[k] !== prev`) so Course 1 through Course N all obey the exact same rising/descending/plateau rules.
+ * - Rising (`n > prevN`): starts low (`N -> N+loopWidth`).
+ * - Descending (`n < prevN`): follows `descendingStartMode` (`low_first`: `N -> N+loopWidth`, `high_first`: `N+loopWidth -> N`).
+ * - Plateau (`n === prevN`): alternates strictly from `prevEnd` so consecutive courses never duplicate.
+ * - When all courses share the exact same needle value, starts at `low -> high` on Course 1 and alternates cleanly across subsequent courses.
  */
 export function computeGuideBarFourStepSeries(
   values: number[],
@@ -107,22 +129,39 @@ export function computeGuideBarFourStepSeries(
   skipBehavior: SkipBehaviorMode,
   descendingStartMode: DescendingStartMode = 'low_first'
 ): Array<[number, number, number, number]> {
-  const result: Array<[number, number, number, number]> = [];
-  if (values.length === 0) return result;
+  const count = values.length;
+  if (count === 0) return [];
 
-  let prevN = values[0] ?? 0;
+  if (mode === 'inlay') {
+    return values.map((v) => {
+      const n = v ?? 0;
+      return [n, n, n, n];
+    });
+  }
+
+  const result: Array<[number, number, number, number]> = new Array(count);
+
+  // Find first transition anchor across the entire cyclic repeat so Course 1 also respects wrap-around from the last course
+  let anchorIdx = -1;
+  if (count > 1) {
+    for (let i = 0; i < count; i++) {
+      const cur = values[i] ?? 0;
+      const prev = values[(i - 1 + count) % count] ?? 0;
+      if (cur !== prev) {
+        anchorIdx = i;
+        break;
+      }
+    }
+  }
+
+  const startIdx = anchorIdx >= 0 ? anchorIdx : 0;
+  let prevN = values[(startIdx - 1 + count) % count] ?? 0;
   let prevEnd = prevN;
 
-  for (let i = 0; i < values.length; i++) {
-    const n = values[i] ?? 0;
-    const isSkipped = Boolean(skips[i]);
-
-    if (mode === 'inlay') {
-      result.push([n, n, n, n]);
-      prevN = n;
-      prevEnd = n;
-      continue;
-    }
+  for (let step = 0; step < count; step++) {
+    const idx = (startIdx + step) % count;
+    const n = values[idx] ?? 0;
+    const isSkipped = Boolean(skips[idx]);
 
     const low = n;
     const high = n + loopWidth;
@@ -130,7 +169,7 @@ export function computeGuideBarFourStepSeries(
     let a: number;
     let b: number;
 
-    if (i === 0) {
+    if (count === 1 || (anchorIdx === -1 && step === 0)) {
       a = low;
       b = high;
     } else if (n > prevN) {
@@ -180,7 +219,7 @@ export function computeGuideBarFourStepSeries(
       steps = [a, b, a, b];
     }
 
-    result.push(steps);
+    result[idx] = steps;
     prevN = n;
     prevEnd = steps[3];
   }
@@ -188,14 +227,27 @@ export function computeGuideBarFourStepSeries(
   return result;
 }
 
+export function resolveDescendingModesMap(
+  input?: Record<GuideBarId, DescendingStartMode> | DescendingStartMode
+): Record<GuideBarId, DescendingStartMode> {
+  if (!input) return { ...DEFAULT_DESCENDING_MODES };
+  if (typeof input === 'string') {
+    const m: DescendingStartMode = input === 'high_first' ? 'high_first' : 'low_first';
+    return { GB1: m, GB2: m, GB3: m, GB4: m, GB5: m, GB6: m };
+  }
+  return { ...DEFAULT_DESCENDING_MODES, ...input };
+}
+
 export function buildExpandedFourStepRows(
   rows: PatternData['rows'],
   barModes: Record<GuideBarId, StitchLoopMode>,
   loopWidth: number,
   skipBehavior: SkipBehaviorMode,
-  descendingStartMode: DescendingStartMode = 'low_first'
+  descendingStartInput: Record<GuideBarId, DescendingStartMode> | DescendingStartMode = DEFAULT_DESCENDING_MODES
 ): ComputedStepRow[] {
   if (!rows || rows.length === 0) return [];
+
+  const descModes = resolveDescendingModesMap(descendingStartInput);
 
   const stepsByBar: Record<GuideBarId, Array<[number, number, number, number]>> = {
     GB1: computeGuideBarFourStepSeries(
@@ -204,7 +256,7 @@ export function buildExpandedFourStepRows(
       barModes.GB1,
       loopWidth,
       skipBehavior,
-      descendingStartMode
+      descModes.GB1
     ),
     GB2: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB2 ?? 0),
@@ -212,7 +264,7 @@ export function buildExpandedFourStepRows(
       barModes.GB2,
       loopWidth,
       skipBehavior,
-      descendingStartMode
+      descModes.GB2
     ),
     GB3: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB3 ?? 0),
@@ -220,7 +272,7 @@ export function buildExpandedFourStepRows(
       barModes.GB3,
       loopWidth,
       skipBehavior,
-      descendingStartMode
+      descModes.GB3
     ),
     GB4: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB4 ?? 0),
@@ -228,7 +280,7 @@ export function buildExpandedFourStepRows(
       barModes.GB4,
       loopWidth,
       skipBehavior,
-      descendingStartMode
+      descModes.GB4
     ),
     GB5: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB5 ?? 0),
@@ -236,7 +288,7 @@ export function buildExpandedFourStepRows(
       barModes.GB5,
       loopWidth,
       skipBehavior,
-      descendingStartMode
+      descModes.GB5
     ),
     GB6: computeGuideBarFourStepSeries(
       rows.map((r) => r.GB6 ?? 0),
@@ -244,7 +296,7 @@ export function buildExpandedFourStepRows(
       barModes.GB6,
       loopWidth,
       skipBehavior,
-      descendingStartMode
+      descModes.GB6
     ),
   };
 
@@ -388,7 +440,10 @@ export function applyManualTableOverrides(
 
 export function buildFinalFourStepRows(
   rows: PatternData['rows'],
-  settings: Pick<TableCalcSettings, 'barModes' | 'loopWidth' | 'skipBehavior' | 'descendingStartMode'>,
+  settings: Pick<TableCalcSettings, 'barModes' | 'loopWidth' | 'skipBehavior'> & {
+    descendingStartModes?: Record<GuideBarId, DescendingStartMode>;
+    descendingStartMode?: DescendingStartMode;
+  },
   extras?: Partial<PatternTableExtras>
 ): ComputedStepRow[] {
   if (extras?.isTableManualOverride && Array.isArray(extras.lockedTableRows)) {
@@ -407,7 +462,7 @@ export function buildFinalFourStepRows(
     settings.barModes,
     settings.loopWidth,
     settings.skipBehavior,
-    settings.descendingStartMode
+    settings.descendingStartModes ?? settings.descendingStartMode ?? DEFAULT_DESCENDING_MODES
   );
 
   const deletedSet = new Set(extras?.deletedStepKeys || []);
