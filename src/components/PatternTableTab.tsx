@@ -70,6 +70,18 @@ const MODE_SHORT_FORMULAS: Record<StitchLoopMode, string> = {
   inlay: 'N · N · N · N',
 };
 
+const DESC_MODE_LABELS: Record<DescendingStartMode, string> = {
+  smooth_chain: 'Zincir Geçiş (±1)',
+  low_first: 'Düşüş: Düşükten',
+  high_first: 'Düşüş: Yüksekten',
+};
+
+const getNextDescendingMode = (mode: DescendingStartMode): DescendingStartMode => {
+  if (mode === 'low_first') return 'smooth_chain';
+  if (mode === 'smooth_chain') return 'high_first';
+  return 'low_first';
+};
+
 export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   pattern,
   fabricWidthCm = 410,
@@ -1039,16 +1051,22 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                 {(() => {
                   const targetBars =
                     selectedDescendingTarget === 'ALL' ? displayBars : [selectedDescendingTarget];
-                  const allLow = targetBars.every((id) => descendingStartModes[id] === 'low_first');
-                  const allHigh = targetBars.every((id) => descendingStartModes[id] === 'high_first');
-                  const nextMode: DescendingStartMode = allLow ? 'high_first' : 'low_first';
+                  const firstMode = descendingStartModes[targetBars[0]];
+                  const allSame = targetBars.every((id) => descendingStartModes[id] === firstMode);
+                  const nextMode: DescendingStartMode = allSame
+                    ? getNextDescendingMode(firstMode)
+                    : 'smooth_chain';
                   const targetLabel =
                     selectedDescendingTarget === 'ALL' ? 'Tümü' : selectedDescendingTarget;
-                  const modeLabel = allLow
-                    ? 'Düşüş: Düşükten'
-                    : allHigh
-                    ? 'Düşüş: Yüksekten'
-                    : 'Düşüş: Karma';
+                  const modeLabel = allSame ? DESC_MODE_LABELS[firstMode] : 'Düşüş: Karma';
+
+                  const btnColors = !allSame
+                    ? 'bg-amber-950/80 text-amber-200 border-amber-700 hover:bg-amber-900/80'
+                    : firstMode === 'smooth_chain'
+                    ? 'bg-emerald-950/80 text-emerald-200 border-emerald-700 hover:bg-emerald-900/80'
+                    : firstMode === 'low_first'
+                    ? 'bg-cyan-950/80 text-cyan-200 border-cyan-700 hover:bg-cyan-900/80'
+                    : 'bg-indigo-950/80 text-indigo-200 border-indigo-700 hover:bg-indigo-900/80';
 
                   return (
                     <button
@@ -1066,14 +1084,8 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                           return updated;
                         });
                       }}
-                      title={`${targetLabel} için tüm kurslarda ilmek düşüş başlangıç yönünü değiştir`}
-                      className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer transition-colors flex items-center gap-1 ml-0.5 ${
-                        allLow
-                          ? 'bg-cyan-950/80 text-cyan-200 border-cyan-700 hover:bg-cyan-900/80'
-                          : allHigh
-                          ? 'bg-indigo-950/80 text-indigo-200 border-indigo-700 hover:bg-indigo-900/80'
-                          : 'bg-amber-950/80 text-amber-200 border-amber-700 hover:bg-amber-900/80'
-                      }`}
+                      title={`${targetLabel} için tüm kurslarda geçiş/düşüş yönünü değiştir (Zincir ±1 / Düşükten / Yüksekten)`}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer transition-colors flex items-center gap-1 ml-0.5 ${btnColors}`}
                     >
                       <ArrowDownUp className="w-3 h-3 shrink-0" />
                       <span>
@@ -1158,20 +1170,20 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                   onClick={() =>
                     setDescendingStartModes((prev) => ({
                       ...prev,
-                      [gbId]: prev[gbId] === 'low_first' ? 'high_first' : 'low_first',
+                      [gbId]: getNextDescendingMode(prev[gbId]),
                     }))
                   }
-                  title={`${gbId} için yüksekten aşağı düşüş başlangıç yönünü değiştir`}
+                  title={`${gbId} için tüm kurslarda geçiş/düşüş yönünü değiştir (Zincir ±1 / Düşükten / Yüksekten)`}
                   className={`w-full px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-pointer transition-colors flex items-center justify-center gap-1 ${
-                    currentDescMode === 'low_first'
+                    currentDescMode === 'smooth_chain'
+                      ? 'bg-emerald-950/70 text-emerald-200 border-emerald-800 hover:bg-emerald-900/70'
+                      : currentDescMode === 'low_first'
                       ? 'bg-cyan-950/70 text-cyan-200 border-cyan-800 hover:bg-cyan-900/70'
                       : 'bg-indigo-950/70 text-indigo-200 border-indigo-800 hover:bg-indigo-900/70'
                   }`}
                 >
                   <ArrowDownUp className="w-2.5 h-2.5 shrink-0" />
-                  <span>
-                    {currentDescMode === 'low_first' ? 'Düşüş: Düşükten' : 'Düşüş: Yüksekten'}
-                  </span>
+                  <span>{DESC_MODE_LABELS[currentDescMode]}</span>
                 </button>
               </div>
             );

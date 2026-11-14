@@ -2,7 +2,7 @@ import { GuideBarId, PatternData, PatternTableExtrasData, RackTensionRow } from 
 
 export type StitchLoopMode = 'double_bed' | 'front_bed' | 'back_bed' | 'inlay';
 export type SkipBehaviorMode = 'front_skip' | 'back_skip' | 'full_skip';
-export type DescendingStartMode = 'low_first' | 'high_first';
+export type DescendingStartMode = 'smooth_chain' | 'low_first' | 'high_first';
 
 export const ALL_GB_IDS: GuideBarId[] = ['GB1', 'GB2', 'GB3', 'GB4', 'GB5', 'GB6'];
 
@@ -25,12 +25,12 @@ export const ALL_DOUBLE_MODES: Record<GuideBarId, StitchLoopMode> = {
 };
 
 export const DEFAULT_DESCENDING_MODES: Record<GuideBarId, DescendingStartMode> = {
-  GB1: 'low_first',
-  GB2: 'low_first',
-  GB3: 'low_first',
-  GB4: 'low_first',
-  GB5: 'low_first',
-  GB6: 'low_first',
+  GB1: 'smooth_chain',
+  GB2: 'smooth_chain',
+  GB3: 'smooth_chain',
+  GB4: 'smooth_chain',
+  GB5: 'smooth_chain',
+  GB6: 'smooth_chain',
 };
 
 export interface ComputedStepRow {
@@ -63,21 +63,27 @@ export interface TableCalcSettings {
 
 const TABLE_SETTINGS_STORAGE_KEY = 'warpknitt_table_settings';
 
+function normalizeDescendingMode(val: unknown, fallback: DescendingStartMode): DescendingStartMode {
+  if (val === 'smooth_chain' || val === 'low_first' || val === 'high_first') {
+    return val;
+  }
+  return fallback;
+}
+
 export function loadSavedTableSettings(): TableCalcSettings {
   try {
     const raw = localStorage.getItem(TABLE_SETTINGS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      const legacyMode: DescendingStartMode =
-        parsed.descendingStartMode === 'high_first' ? 'high_first' : 'low_first';
+      const legacyMode = normalizeDescendingMode(parsed.descendingStartMode, 'smooth_chain');
       const rawPerBar = parsed.descendingStartModes || {};
       const descendingStartModes: Record<GuideBarId, DescendingStartMode> = {
-        GB1: rawPerBar.GB1 === 'high_first' || rawPerBar.GB1 === 'low_first' ? rawPerBar.GB1 : legacyMode,
-        GB2: rawPerBar.GB2 === 'high_first' || rawPerBar.GB2 === 'low_first' ? rawPerBar.GB2 : legacyMode,
-        GB3: rawPerBar.GB3 === 'high_first' || rawPerBar.GB3 === 'low_first' ? rawPerBar.GB3 : legacyMode,
-        GB4: rawPerBar.GB4 === 'high_first' || rawPerBar.GB4 === 'low_first' ? rawPerBar.GB4 : legacyMode,
-        GB5: rawPerBar.GB5 === 'high_first' || rawPerBar.GB5 === 'low_first' ? rawPerBar.GB5 : legacyMode,
-        GB6: rawPerBar.GB6 === 'high_first' || rawPerBar.GB6 === 'low_first' ? rawPerBar.GB6 : legacyMode,
+        GB1: normalizeDescendingMode(rawPerBar.GB1, legacyMode),
+        GB2: normalizeDescendingMode(rawPerBar.GB2, legacyMode),
+        GB3: normalizeDescendingMode(rawPerBar.GB3, legacyMode),
+        GB4: normalizeDescendingMode(rawPerBar.GB4, legacyMode),
+        GB5: normalizeDescendingMode(rawPerBar.GB5, legacyMode),
+        GB6: normalizeDescendingMode(rawPerBar.GB6, legacyMode),
       };
       return {
         barModes: { ...DEFAULT_HRD6_MODES, ...(parsed.barModes || {}) },
@@ -100,7 +106,7 @@ export function loadSavedTableSettings(): TableCalcSettings {
     skipBehavior: 'front_skip',
     loopWidth: 1,
     descendingStartModes: { ...DEFAULT_DESCENDING_MODES },
-    descendingStartMode: 'low_first',
+    descendingStartMode: 'smooth_chain',
   };
 }
 
@@ -112,14 +118,30 @@ export function saveTableSettings(settings: TableCalcSettings): void {
   }
 }
 
+function formatFourStepsForCourse(
+  n: number,
+  a: number,
+  b: number,
+  isSkipped: boolean,
+  mode: StitchLoopMode,
+  skipBehavior: SkipBehaviorMode
+): [number, number, number, number] {
+  if (isSkipped) {
+    if (skipBehavior === 'full_skip') return [n, n, n, n];
+    if (skipBehavior === 'front_skip') return mode === 'front_bed' ? [a, a, a, a] : [a, a, a, b];
+    return mode === 'back_bed' ? [a, a, a, a] : [a, b, b, b];
+  }
+  if (mode === 'front_bed') return [a, b, b, b];
+  if (mode === 'back_bed') return [a, a, a, b];
+  return [a, b, a, b];
+}
+
 /**
  * Computes 4 machine steps per course cyclically across ALL courses for a full guide bar series without mutating pattern data.
- * Evaluates every course relative to its preceding course in the full pattern repeat (including Course N -> Course 1):
- * - Starts from an anchor course where needle position changes (`values[k] !== prev`) so Course 1 through Course N all obey the exact same rising/descending/plateau rules.
- * - Rising (`n > prevN`): starts low (`N -> N+loopWidth`).
- * - Descending (`n < prevN`): follows `descendingStartMode` (`low_first`: `N -> N+loopWidth`, `high_first`: `N+loopWidth -> N`).
- * - Plateau (`n === prevN`): alternates strictly from `prevEnd` so consecutive courses never duplicate.
- * - When all courses share the exact same needle value, starts at `low -> high` on Course 1 and alternates cleanly across subsequent courses.
+ * Modes:
+ * - `'smooth_chain'` (Zincir Geçiş ±1): Continuously chooses the next course's start needle (`a`) so consecutive courses never stall on the same needle (`a !== prevEnd` when `n !== prevN`) and take the shortest ±1 underlap (producing e.g. `3-4-3-4 | 3-2-3-2 | 1-2-1-2 | 3-2-3-2` for `[3,2,1,2]`).
+ * - `'low_first'` (Düşükten): On descending courses (`n < prevN`), always starts at `low` (`N -> N+loopWidth`).
+ * - `'high_first'` (Yüksekten): On descending courses (`n < prevN`), always starts at `high` (`N+loopWidth -> N`).
  */
 export function computeGuideBarFourStepSeries(
   values: number[],
@@ -127,7 +149,7 @@ export function computeGuideBarFourStepSeries(
   mode: StitchLoopMode,
   loopWidth: number,
   skipBehavior: SkipBehaviorMode,
-  descendingStartMode: DescendingStartMode = 'low_first'
+  descendingStartMode: DescendingStartMode = 'smooth_chain'
 ): Array<[number, number, number, number]> {
   const count = values.length;
   if (count === 0) return [];
@@ -137,6 +159,59 @@ export function computeGuideBarFourStepSeries(
       const n = v ?? 0;
       return [n, n, n, n];
     });
+  }
+
+  if (descendingStartMode === 'smooth_chain') {
+    const result: Array<[number, number, number, number]> = new Array(count);
+    let prevN = values[0] ?? 0;
+    let prevEnd = prevN;
+
+    for (let i = 0; i < count; i++) {
+      const n = values[i] ?? 0;
+      const isSkipped = Boolean(skips[i]);
+      const low = n;
+      const high = n + loopWidth;
+
+      let a: number;
+      let b: number;
+
+      if (i === 0) {
+        // Course 1 always starts at base needle (low -> high, e.g. 3-4-3-4)
+        a = low;
+        b = high;
+      } else if (n === prevN) {
+        if (prevEnd >= high) {
+          a = high;
+          b = low;
+        } else {
+          a = low;
+          b = high;
+        }
+      } else {
+        const dLow = Math.abs(low - prevEnd);
+        const dHigh = Math.abs(high - prevEnd);
+        if (low === prevEnd && high !== prevEnd) {
+          a = high;
+          b = low;
+        } else if (high === prevEnd && low !== prevEnd) {
+          a = low;
+          b = high;
+        } else if (dHigh < dLow) {
+          a = high;
+          b = low;
+        } else {
+          a = low;
+          b = high;
+        }
+      }
+
+      const steps = formatFourStepsForCourse(n, a, b, isSkipped, mode, skipBehavior);
+      result[i] = steps;
+      prevN = n;
+      prevEnd = steps[3];
+    }
+
+    return result;
   }
 
   const result: Array<[number, number, number, number]> = new Array(count);
@@ -193,32 +268,7 @@ export function computeGuideBarFourStepSeries(
       }
     }
 
-    let steps: [number, number, number, number];
-
-    if (isSkipped) {
-      if (skipBehavior === 'full_skip') {
-        steps = [n, n, n, n];
-      } else if (skipBehavior === 'front_skip') {
-        if (mode === 'front_bed') {
-          steps = [a, a, a, a];
-        } else {
-          steps = [a, a, a, b];
-        }
-      } else {
-        if (mode === 'back_bed') {
-          steps = [a, a, a, a];
-        } else {
-          steps = [a, b, b, b];
-        }
-      }
-    } else if (mode === 'front_bed') {
-      steps = [a, b, b, b];
-    } else if (mode === 'back_bed') {
-      steps = [a, a, a, b];
-    } else {
-      steps = [a, b, a, b];
-    }
-
+    const steps = formatFourStepsForCourse(n, a, b, isSkipped, mode, skipBehavior);
     result[idx] = steps;
     prevN = n;
     prevEnd = steps[3];
@@ -232,7 +282,7 @@ export function resolveDescendingModesMap(
 ): Record<GuideBarId, DescendingStartMode> {
   if (!input) return { ...DEFAULT_DESCENDING_MODES };
   if (typeof input === 'string') {
-    const m: DescendingStartMode = input === 'high_first' ? 'high_first' : 'low_first';
+    const m = normalizeDescendingMode(input, 'smooth_chain');
     return { GB1: m, GB2: m, GB3: m, GB4: m, GB5: m, GB6: m };
   }
   return { ...DEFAULT_DESCENDING_MODES, ...input };
