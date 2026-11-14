@@ -33,6 +33,15 @@ export const DEFAULT_DESCENDING_MODES: Record<GuideBarId, DescendingStartMode> =
   GB6: 'smooth_chain',
 };
 
+export const DEFAULT_SKIP_BEHAVIORS: Record<GuideBarId, SkipBehaviorMode> = {
+  GB1: 'front_skip',
+  GB2: 'front_skip',
+  GB3: 'front_skip',
+  GB4: 'front_skip',
+  GB5: 'front_skip',
+  GB6: 'front_skip',
+};
+
 export interface ComputedStepRow {
   rowKey: string;
   courseIndex: number;
@@ -55,7 +64,8 @@ export interface CustomTableStepRow {
 
 export interface TableCalcSettings {
   barModes: Record<GuideBarId, StitchLoopMode>;
-  skipBehavior: SkipBehaviorMode;
+  skipBehaviors: Record<GuideBarId, SkipBehaviorMode>;
+  skipBehavior?: SkipBehaviorMode;
   loopWidth: number;
   descendingStartModes: Record<GuideBarId, DescendingStartMode>;
   descendingStartMode?: DescendingStartMode;
@@ -65,6 +75,13 @@ const TABLE_SETTINGS_STORAGE_KEY = 'warpknitt_table_settings';
 
 function normalizeDescendingMode(val: unknown, fallback: DescendingStartMode): DescendingStartMode {
   if (val === 'smooth_chain' || val === 'low_first' || val === 'high_first') {
+    return val;
+  }
+  return fallback;
+}
+
+function normalizeSkipBehavior(val: unknown, fallback: SkipBehaviorMode): SkipBehaviorMode {
+  if (val === 'front_skip' || val === 'back_skip' || val === 'full_skip') {
     return val;
   }
   return fallback;
@@ -85,14 +102,22 @@ export function loadSavedTableSettings(): TableCalcSettings {
         GB5: normalizeDescendingMode(rawPerBar.GB5, legacyMode),
         GB6: normalizeDescendingMode(rawPerBar.GB6, legacyMode),
       };
+
+      const legacySkip = normalizeSkipBehavior(parsed.skipBehavior, 'front_skip');
+      const rawPerBarSkip = parsed.skipBehaviors || {};
+      const skipBehaviors: Record<GuideBarId, SkipBehaviorMode> = {
+        GB1: normalizeSkipBehavior(rawPerBarSkip.GB1, legacySkip),
+        GB2: normalizeSkipBehavior(rawPerBarSkip.GB2, legacySkip),
+        GB3: normalizeSkipBehavior(rawPerBarSkip.GB3, legacySkip),
+        GB4: normalizeSkipBehavior(rawPerBarSkip.GB4, legacySkip),
+        GB5: normalizeSkipBehavior(rawPerBarSkip.GB5, legacySkip),
+        GB6: normalizeSkipBehavior(rawPerBarSkip.GB6, legacySkip),
+      };
+
       return {
         barModes: { ...DEFAULT_HRD6_MODES, ...(parsed.barModes || {}) },
-        skipBehavior:
-          parsed.skipBehavior === 'front_skip' ||
-          parsed.skipBehavior === 'back_skip' ||
-          parsed.skipBehavior === 'full_skip'
-            ? parsed.skipBehavior
-            : 'front_skip',
+        skipBehaviors,
+        skipBehavior: legacySkip,
         loopWidth: parsed.loopWidth === 2 ? 2 : 1,
         descendingStartModes,
         descendingStartMode: legacyMode,
@@ -103,6 +128,7 @@ export function loadSavedTableSettings(): TableCalcSettings {
   }
   return {
     barModes: { ...DEFAULT_HRD6_MODES },
+    skipBehaviors: { ...DEFAULT_SKIP_BEHAVIORS },
     skipBehavior: 'front_skip',
     loopWidth: 1,
     descendingStartModes: { ...DEFAULT_DESCENDING_MODES },
@@ -288,16 +314,28 @@ export function resolveDescendingModesMap(
   return { ...DEFAULT_DESCENDING_MODES, ...input };
 }
 
+export function resolveSkipBehaviorsMap(
+  input?: Record<GuideBarId, SkipBehaviorMode> | SkipBehaviorMode
+): Record<GuideBarId, SkipBehaviorMode> {
+  if (!input) return { ...DEFAULT_SKIP_BEHAVIORS };
+  if (typeof input === 'string') {
+    const m = normalizeSkipBehavior(input, 'front_skip');
+    return { GB1: m, GB2: m, GB3: m, GB4: m, GB5: m, GB6: m };
+  }
+  return { ...DEFAULT_SKIP_BEHAVIORS, ...input };
+}
+
 export function buildExpandedFourStepRows(
   rows: PatternData['rows'],
   barModes: Record<GuideBarId, StitchLoopMode>,
   loopWidth: number,
-  skipBehavior: SkipBehaviorMode,
+  skipBehaviorInput: Record<GuideBarId, SkipBehaviorMode> | SkipBehaviorMode = DEFAULT_SKIP_BEHAVIORS,
   descendingStartInput: Record<GuideBarId, DescendingStartMode> | DescendingStartMode = DEFAULT_DESCENDING_MODES
 ): ComputedStepRow[] {
   if (!rows || rows.length === 0) return [];
 
   const descModes = resolveDescendingModesMap(descendingStartInput);
+  const skipModes = resolveSkipBehaviorsMap(skipBehaviorInput);
 
   const stepsByBar: Record<GuideBarId, Array<[number, number, number, number]>> = {
     GB1: computeGuideBarFourStepSeries(
@@ -305,7 +343,7 @@ export function buildExpandedFourStepRows(
       rows.map((r) => Boolean(r.skips?.GB1)),
       barModes.GB1,
       loopWidth,
-      skipBehavior,
+      skipModes.GB1,
       descModes.GB1
     ),
     GB2: computeGuideBarFourStepSeries(
@@ -313,7 +351,7 @@ export function buildExpandedFourStepRows(
       rows.map((r) => Boolean(r.skips?.GB2)),
       barModes.GB2,
       loopWidth,
-      skipBehavior,
+      skipModes.GB2,
       descModes.GB2
     ),
     GB3: computeGuideBarFourStepSeries(
@@ -321,7 +359,7 @@ export function buildExpandedFourStepRows(
       rows.map((r) => Boolean(r.skips?.GB3)),
       barModes.GB3,
       loopWidth,
-      skipBehavior,
+      skipModes.GB3,
       descModes.GB3
     ),
     GB4: computeGuideBarFourStepSeries(
@@ -329,7 +367,7 @@ export function buildExpandedFourStepRows(
       rows.map((r) => Boolean(r.skips?.GB4)),
       barModes.GB4,
       loopWidth,
-      skipBehavior,
+      skipModes.GB4,
       descModes.GB4
     ),
     GB5: computeGuideBarFourStepSeries(
@@ -337,7 +375,7 @@ export function buildExpandedFourStepRows(
       rows.map((r) => Boolean(r.skips?.GB5)),
       barModes.GB5,
       loopWidth,
-      skipBehavior,
+      skipModes.GB5,
       descModes.GB5
     ),
     GB6: computeGuideBarFourStepSeries(
@@ -345,7 +383,7 @@ export function buildExpandedFourStepRows(
       rows.map((r) => Boolean(r.skips?.GB6)),
       barModes.GB6,
       loopWidth,
-      skipBehavior,
+      skipModes.GB6,
       descModes.GB6
     ),
   };
@@ -490,7 +528,9 @@ export function applyManualTableOverrides(
 
 export function buildFinalFourStepRows(
   rows: PatternData['rows'],
-  settings: Pick<TableCalcSettings, 'barModes' | 'loopWidth' | 'skipBehavior'> & {
+  settings: Pick<TableCalcSettings, 'barModes' | 'loopWidth'> & {
+    skipBehavior?: SkipBehaviorMode;
+    skipBehaviors?: Record<GuideBarId, SkipBehaviorMode>;
     descendingStartModes?: Record<GuideBarId, DescendingStartMode>;
     descendingStartMode?: DescendingStartMode;
   },
@@ -511,7 +551,7 @@ export function buildFinalFourStepRows(
     effectiveRows,
     settings.barModes,
     settings.loopWidth,
-    settings.skipBehavior,
+    settings.skipBehaviors ?? settings.skipBehavior ?? DEFAULT_SKIP_BEHAVIORS,
     settings.descendingStartModes ?? settings.descendingStartMode ?? DEFAULT_DESCENDING_MODES
   );
 

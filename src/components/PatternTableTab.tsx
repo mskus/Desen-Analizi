@@ -25,6 +25,7 @@ import {
   ALL_DOUBLE_MODES,
   DEFAULT_HRD6_MODES,
   DEFAULT_DESCENDING_MODES,
+  DEFAULT_SKIP_BEHAVIORS,
   StitchLoopMode,
   SkipBehaviorMode,
   DescendingStartMode,
@@ -82,6 +83,18 @@ const getNextDescendingMode = (mode: DescendingStartMode): DescendingStartMode =
   return 'low_first';
 };
 
+const SKIP_SHORT_LABELS: Record<SkipBehaviorMode, string> = {
+  front_skip: 'Atlama: Ön (a·a·a·b)',
+  back_skip: 'Atlama: Arka (a·b·b·b)',
+  full_skip: 'Atlama: Tam (N·N·N·N)',
+};
+
+const getNextSkipBehavior = (mode: SkipBehaviorMode): SkipBehaviorMode => {
+  if (mode === 'front_skip') return 'back_skip';
+  if (mode === 'back_skip') return 'full_skip';
+  return 'front_skip';
+};
+
 export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   pattern,
   fabricWidthCm = 410,
@@ -89,7 +102,9 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
 }) => {
   const initialSettings = useMemo(() => loadSavedTableSettings(), []);
   const [barModes, setBarModes] = useState<Record<GuideBarId, StitchLoopMode>>(initialSettings.barModes);
-  const [skipBehavior, setSkipBehavior] = useState<SkipBehaviorMode>(initialSettings.skipBehavior);
+  const [skipBehaviors, setSkipBehaviors] = useState<Record<GuideBarId, SkipBehaviorMode>>(
+    initialSettings.skipBehaviors
+  );
   const [loopWidth, setLoopWidth] = useState<number>(initialSettings.loopWidth);
   const [descendingStartModes, setDescendingStartModes] = useState<
     Record<GuideBarId, DescendingStartMode>
@@ -177,8 +192,14 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   }, [pattern.rows, pattern.guideBars, isRackManualOverride]);
 
   useEffect(() => {
-    saveTableSettings({ barModes, skipBehavior, loopWidth, descendingStartModes });
-  }, [barModes, skipBehavior, loopWidth, descendingStartModes]);
+    saveTableSettings({
+      barModes,
+      skipBehaviors,
+      skipBehavior: skipBehaviors.GB1,
+      loopWidth,
+      descendingStartModes,
+    });
+  }, [barModes, skipBehaviors, loopWidth, descendingStartModes]);
 
   const persistExtras = (patch?: {
     mayDensity?: string;
@@ -358,7 +379,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
   const finalExpandedRows = useMemo<ComputedStepRow[]>(() => {
     return buildFinalFourStepRows(
       rows,
-      { barModes, loopWidth, skipBehavior, descendingStartModes },
+      { barModes, loopWidth, skipBehaviors, descendingStartModes },
       {
         isTableManualOverride,
         lockedTableRows,
@@ -372,7 +393,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
     rows,
     barModes,
     loopWidth,
-    skipBehavior,
+    skipBehaviors,
     descendingStartModes,
     isTableManualOverride,
     lockedTableRows,
@@ -744,7 +765,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
         courseSkips,
         barModes[gbId],
         loopWidth,
-        skipBehavior,
+        skipBehaviors[gbId],
         descendingStartModes[gbId]
       );
       const targetSeriesIdx = courseOrder.indexOf(targetCourseIdx);
@@ -970,28 +991,101 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap items-center gap-1 bg-[#0B0F17] px-2 py-1 rounded border border-slate-800">
-              <span className="text-[11px] text-amber-300 font-semibold mr-1">Atlama (Skip):</span>
-              {[
-                { id: 'front_skip' as const, label: 'Ön Atla (a·a·a·b)', title: 'Ön iğne rayını atlar, arka rayda ilmek bağlar (0,0,0,1 / 1,1,1,0)' },
-                { id: 'back_skip' as const, label: 'Arka Atla (a·b·b·b)', title: 'Ön rayda ilmek yapar, arka rayı atlar' },
-                { id: 'full_skip' as const, label: 'Tam Atla (N·N·N·N)', title: 'Her iki rayda da ilmek yapmadan düz geçer' },
-              ].map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setSkipBehavior(opt.id)}
-                  title={opt.title}
-                  className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-bold border cursor-pointer transition-colors ${
-                    skipBehavior === opt.id
-                      ? 'bg-amber-600 text-white border-amber-500'
-                      : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            {/* Shared Tarak Selector for Atlama (Skip) & Düşüş */}
+            <div className="flex flex-wrap items-center gap-1 bg-[#0B0F17] px-1.5 py-0.5 rounded border border-slate-800">
+              <span className="text-[10px] text-slate-400 font-semibold mr-0.5">Tarak:</span>
+              <button
+                type="button"
+                onClick={() => setSelectedDescendingTarget('ALL')}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                  selectedDescendingTarget === 'ALL'
+                    ? 'bg-sky-700 text-white border-sky-500'
+                    : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
+                }`}
+              >
+                Tümü
+              </button>
+              {displayBars.map((gbId) => {
+                const isSelectedTarget = selectedDescendingTarget === gbId;
+                const gbColor = pattern.guideBars[gbId]?.color || '#38bdf8';
+                return (
+                  <button
+                    key={gbId}
+                    type="button"
+                    onClick={() => setSelectedDescendingTarget(gbId)}
+                    title={`Atlama (Skip) ve Düşüş yönü değişimi için ${gbId} tarağını seç`}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border cursor-pointer transition-colors ${
+                      isSelectedTarget
+                        ? 'bg-cyan-800 text-white border-cyan-400'
+                        : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
+                    }`}
+                    style={
+                      !isSelectedTarget
+                        ? { borderBottomColor: gbColor, borderBottomWidth: '2px' }
+                        : undefined
+                    }
+                  >
+                    {gbId}
+                  </button>
+                );
+              })}
             </div>
+
+            {(() => {
+              const targetBars =
+                selectedDescendingTarget === 'ALL' ? displayBars : [selectedDescendingTarget];
+              const firstSkip = skipBehaviors[targetBars[0]];
+              const allSameSkip = targetBars.every((id) => skipBehaviors[id] === firstSkip);
+              const targetLabel =
+                selectedDescendingTarget === 'ALL' ? 'Tümü' : selectedDescendingTarget;
+
+              return (
+                <div className="flex flex-wrap items-center gap-1 bg-[#0B0F17] px-2 py-1 rounded border border-slate-800">
+                  <span className="text-[11px] text-amber-300 font-semibold mr-1">
+                    Atlama (Skip){selectedDescendingTarget !== 'ALL' ? ` · ${targetLabel}` : ''}:
+                  </span>
+                  {[
+                    { id: 'front_skip' as const, label: 'Ön Atla (a·a·a·b)', title: `${targetLabel} için ön iğne rayını atlar, arka rayda ilmek bağlar (0,0,0,1 / 1,1,1,0)` },
+                    { id: 'back_skip' as const, label: 'Arka Atla (a·b·b·b)', title: `${targetLabel} için ön rayda ilmek yapar, arka rayı atlar` },
+                    { id: 'full_skip' as const, label: 'Tam Atla (N·N·N·N)', title: `${targetLabel} için her iki rayda da ilmek yapmadan düz geçer` },
+                  ].map((opt) => {
+                    const isActiveSkip = allSameSkip && firstSkip === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          setSkipBehaviors((prev) => {
+                            const updated = { ...prev };
+                            if (selectedDescendingTarget === 'ALL') {
+                              ALL_GB_IDS.forEach((id) => {
+                                updated[id] = opt.id;
+                              });
+                            } else {
+                              updated[selectedDescendingTarget] = opt.id;
+                            }
+                            return updated;
+                          });
+                        }}
+                        title={opt.title}
+                        className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-bold border cursor-pointer transition-colors ${
+                          isActiveSkip
+                            ? 'bg-amber-600 text-white border-amber-500'
+                            : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                  {!allSameSkip && (
+                    <span className="text-[10px] font-semibold text-amber-400/90 px-1">
+                      (Karma)
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] text-slate-400 font-semibold">İlmek Adımı:</span>
@@ -1010,98 +1104,59 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                 </button>
               ))}
 
-              <div className="flex flex-wrap items-center gap-1 bg-[#0B0F17] px-1.5 py-0.5 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-400 font-semibold mr-0.5">Tarak:</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDescendingTarget('ALL')}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
-                    selectedDescendingTarget === 'ALL'
-                      ? 'bg-sky-700 text-white border-sky-500'
-                      : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
-                  }`}
-                >
-                  Tümü
-                </button>
-                {displayBars.map((gbId) => {
-                  const isSelectedTarget = selectedDescendingTarget === gbId;
-                  const gbColor = pattern.guideBars[gbId]?.color || '#38bdf8';
-                  return (
-                    <button
-                      key={gbId}
-                      type="button"
-                      onClick={() => setSelectedDescendingTarget(gbId)}
-                      title={`Düşüş yönü değişimi için ${gbId} tarağını seç`}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border cursor-pointer transition-colors ${
-                        isSelectedTarget
-                          ? 'bg-cyan-800 text-white border-cyan-400'
-                          : 'bg-[#111827] text-slate-400 border-slate-700 hover:text-white'
-                      }`}
-                      style={
-                        !isSelectedTarget
-                          ? { borderBottomColor: gbColor, borderBottomWidth: '2px' }
-                          : undefined
-                      }
-                    >
-                      {gbId}
-                    </button>
-                  );
-                })}
+              {(() => {
+                const targetBars =
+                  selectedDescendingTarget === 'ALL' ? displayBars : [selectedDescendingTarget];
+                const firstMode = descendingStartModes[targetBars[0]];
+                const allSame = targetBars.every((id) => descendingStartModes[id] === firstMode);
+                const nextMode: DescendingStartMode = allSame
+                  ? getNextDescendingMode(firstMode)
+                  : 'smooth_chain';
+                const targetLabel =
+                  selectedDescendingTarget === 'ALL' ? 'Tümü' : selectedDescendingTarget;
+                const modeLabel = allSame ? DESC_MODE_LABELS[firstMode] : 'Düşüş: Karma';
 
-                {(() => {
-                  const targetBars =
-                    selectedDescendingTarget === 'ALL' ? displayBars : [selectedDescendingTarget];
-                  const firstMode = descendingStartModes[targetBars[0]];
-                  const allSame = targetBars.every((id) => descendingStartModes[id] === firstMode);
-                  const nextMode: DescendingStartMode = allSame
-                    ? getNextDescendingMode(firstMode)
-                    : 'smooth_chain';
-                  const targetLabel =
-                    selectedDescendingTarget === 'ALL' ? 'Tümü' : selectedDescendingTarget;
-                  const modeLabel = allSame ? DESC_MODE_LABELS[firstMode] : 'Düşüş: Karma';
+                const btnColors = !allSame
+                  ? 'bg-amber-950/80 text-amber-200 border-amber-700 hover:bg-amber-900/80'
+                  : firstMode === 'smooth_chain'
+                  ? 'bg-emerald-950/80 text-emerald-200 border-emerald-700 hover:bg-emerald-900/80'
+                  : firstMode === 'low_first'
+                  ? 'bg-cyan-950/80 text-cyan-200 border-cyan-700 hover:bg-cyan-900/80'
+                  : 'bg-indigo-950/80 text-indigo-200 border-indigo-700 hover:bg-indigo-900/80';
 
-                  const btnColors = !allSame
-                    ? 'bg-amber-950/80 text-amber-200 border-amber-700 hover:bg-amber-900/80'
-                    : firstMode === 'smooth_chain'
-                    ? 'bg-emerald-950/80 text-emerald-200 border-emerald-700 hover:bg-emerald-900/80'
-                    : firstMode === 'low_first'
-                    ? 'bg-cyan-950/80 text-cyan-200 border-cyan-700 hover:bg-cyan-900/80'
-                    : 'bg-indigo-950/80 text-indigo-200 border-indigo-700 hover:bg-indigo-900/80';
-
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDescendingStartModes((prev) => {
-                          const updated = { ...prev };
-                          if (selectedDescendingTarget === 'ALL') {
-                            ALL_GB_IDS.forEach((id) => {
-                              updated[id] = nextMode;
-                            });
-                          } else {
-                            updated[selectedDescendingTarget] = nextMode;
-                          }
-                          return updated;
-                        });
-                      }}
-                      title={`${targetLabel} için tüm kurslarda geçiş/düşüş yönünü değiştir (Zincir ±1 / Düşükten / Yüksekten)`}
-                      className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer transition-colors flex items-center gap-1 ml-0.5 ${btnColors}`}
-                    >
-                      <ArrowDownUp className="w-3 h-3 shrink-0" />
-                      <span>
-                        {selectedDescendingTarget !== 'ALL' ? `${selectedDescendingTarget} ` : ''}
-                        {modeLabel}
-                      </span>
-                    </button>
-                  );
-                })()}
-              </div>
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDescendingStartModes((prev) => {
+                        const updated = { ...prev };
+                        if (selectedDescendingTarget === 'ALL') {
+                          ALL_GB_IDS.forEach((id) => {
+                            updated[id] = nextMode;
+                          });
+                        } else {
+                          updated[selectedDescendingTarget] = nextMode;
+                        }
+                        return updated;
+                      });
+                    }}
+                    title={`${targetLabel} için tüm kurslarda geçiş/düşüş yönünü değiştir (Zincir ±1 / Düşükten / Yüksekten)`}
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer transition-colors flex items-center gap-1 ${btnColors}`}
+                  >
+                    <ArrowDownUp className="w-3 h-3 shrink-0" />
+                    <span>
+                      {selectedDescendingTarget !== 'ALL' ? `${selectedDescendingTarget} ` : ''}
+                      {modeLabel}
+                    </span>
+                  </button>
+                );
+              })()}
 
               <button
                 type="button"
                 onClick={() => {
                   setBarModes({ ...DEFAULT_HRD6_MODES });
-                  setSkipBehavior('front_skip');
+                  setSkipBehaviors({ ...DEFAULT_SKIP_BEHAVIORS });
                   setLoopWidth(1);
                   setDescendingStartModes({ ...DEFAULT_DESCENDING_MODES });
                   setSelectedDescendingTarget('ALL');
@@ -1122,6 +1177,7 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
             const gbColor = gb?.color || '#3b82f6';
             const currentMode = barModes[gbId];
             const currentDescMode = descendingStartModes[gbId];
+            const currentSkipMode = skipBehaviors[gbId];
             const isActive = gb?.active ?? true;
 
             return (
@@ -1184,6 +1240,20 @@ export const PatternTableTab: React.FC<PatternTableTabProps> = ({
                 >
                   <ArrowDownUp className="w-2.5 h-2.5 shrink-0" />
                   <span>{DESC_MODE_LABELS[currentDescMode]}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSkipBehaviors((prev) => ({
+                      ...prev,
+                      [gbId]: getNextSkipBehavior(prev[gbId]),
+                    }))
+                  }
+                  title={`${gbId} için atlama (skip) modunu değiştir (Ön Atla / Arka Atla / Tam Atla)`}
+                  className="w-full px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border cursor-pointer transition-colors bg-amber-950/70 text-amber-200 border-amber-800 hover:bg-amber-900/70 truncate"
+                >
+                  {SKIP_SHORT_LABELS[currentSkipMode]}
                 </button>
               </div>
             );
