@@ -1,6 +1,6 @@
 import React, { useState, useEffect, Suspense, lazy, useRef } from 'react';
 import { ActiveTab, PatternData, PatternRow, GuideBarConfig, GuideBarId, MachineProfile, SafetyConfig, RackTensionRow, PatternTableExtrasData } from './types';
-import { patternLibrary, defaultSafetyConfig, createThreadingArray } from './data/patternLibrary';
+import { patternLibrary, defaultSafetyConfig } from './data/patternLibrary';
 import { Navbar } from './components/Navbar';
 import { SimulationTab } from './components/SimulationTab';
 import {
@@ -10,6 +10,9 @@ import {
   getClientAuthorId,
   seedDefaultPatternsIfNeeded,
   getCachedPatterns,
+  getDeletedPatternIds,
+  sortPatternsBySaveTime,
+  normalizePatternData,
 } from './services/patternSyncService';
 import { logSiteVisit, logSiteExit, trackSharedLinkOpened, startPresencePing } from './services/loggingService';
 import { Check } from 'lucide-react';
@@ -69,27 +72,21 @@ export default function App() {
     if (cached && cached.length > 0) return cached;
     return [];
   });
+  const [deletedPatternIds, setDeletedPatternIds] = useState<string[]>(() =>
+    getDeletedPatternIds()
+  );
 
   const [currentPattern, setCurrentPattern] = useState<PatternData>(() => {
     const saved = localStorage.getItem('warpknitt_current_pattern');
     if (saved) {
       try {
-        const parsed: PatternData = JSON.parse(saved);
-        if (!parsed.safety) parsed.safety = { ...defaultSafetyConfig };
-        if (parsed.guideBars) {
-          (Object.keys(parsed.guideBars) as GuideBarId[]).forEach((k) => {
-            if (!parsed.guideBars[k].threadingArray || parsed.guideBars[k].threadingArray.length === 0) {
-              parsed.guideBars[k].threadingArray = createThreadingArray(parsed.guideBars[k].threading || 'Full');
-            }
-          });
+        const parsed = normalizePatternData(JSON.parse(saved));
+        if (parsed && Array.isArray(parsed.rows) && parsed.rows.length > 0) {
+          if (!parsed.createdAt) {
+            parsed.createdAt = '02.11.2026 10:14';
+          }
+          return parsed;
         }
-        if (!Array.isArray(parsed.rows) || parsed.rows.length === 0) {
-          return patternLibrary[0];
-        }
-        if (!parsed.createdAt) {
-          parsed.createdAt = '02.11.2026 10:14';
-        }
-        return parsed;
       } catch (e) {
         console.error('Failed to parse saved pattern', e);
       }
@@ -157,12 +154,13 @@ export default function App() {
   useEffect(() => {
     setIsSyncing(true);
 
-    const unsub = subscribeToCloudPatterns((cloudPatterns) => {
+    const unsub = subscribeToCloudPatterns((cloudPatterns, syncedDeletedIds) => {
       setIsSyncing(false);
+      setDeletedPatternIds(syncedDeletedIds);
       setCustomPatterns(cloudPatterns);
       if (!hasCheckedSeedRef.current) {
         hasCheckedSeedRef.current = true;
-        if (cloudPatterns.length === 0) {
+        if (cloudPatterns.length === 0 && syncedDeletedIds.length === 0) {
           seedDefaultPatternsIfNeeded(patternLibrary).catch(() => {});
         }
       }
@@ -173,10 +171,13 @@ export default function App() {
     };
   }, []);
 
-  // Universal shared patterns: All cloud patterns + any defaults not yet in cloud
+  // Universal shared patterns: All non-deleted cloud patterns + non-deleted defaults, always sorted newest save first
+  const deletedIdSet = new Set(deletedPatternIds);
   const cloudIds = new Set(customPatterns.map((p) => p.id));
-  const missingDefaults = patternLibrary.filter((p) => !cloudIds.has(p.id));
-  const allPatterns = [...customPatterns, ...missingDefaults];
+  const missingDefaults = patternLibrary.filter(
+    (p) => !cloudIds.has(p.id) && !deletedIdSet.has(p.id)
+  );
+  const allPatterns = sortPatternsBySaveTime([...customPatterns, ...missingDefaults]);
 
   // Handle URL share parameters (?patId=xxx&stoken=yyy)
   useEffect(() => {
@@ -188,15 +189,12 @@ export default function App() {
     if (patId) {
       const found = allPatterns.find((p) => p.id === patId);
       if (found) {
-        const safePat = {
-          ...found,
-          safety: found.safety || { ...defaultSafetyConfig },
-        };
+        const safePat = normalizePatternData(found) || patternLibrary[0];
         setCurrentPattern(safePat);
         setHistory([safePat.rows]);
         setHistoryIndex(0);
         setActiveTab('simulation');
-        setShareLoadedNotice(`Paylaşılan desen yüklendi: ${found.title}`);
+        setShareLoadedNotice(`Paylaşılan desen yüklendi: ${safePat.title}`);
         setTimeout(() => setShareLoadedNotice(null), 4000);
       }
       if (stoken) {
@@ -208,10 +206,7 @@ export default function App() {
   }, [allPatterns.length]);
 
   const handleSelectPattern = (pattern: PatternData) => {
-    const safePat: PatternData = {
-      ...pattern,
-      safety: pattern.safety || { ...defaultSafetyConfig },
-    };
+    const safePat = normalizePatternData(pattern) || patternLibrary[0];
     setCurrentPattern(safePat);
     setHistory([safePat.rows]);
     setHistoryIndex(0);
@@ -220,6 +215,10 @@ export default function App() {
 
   const handleSavePatternToLibrary = (newPattern: PatternData) => {
     setCurrentPattern(newPattern);
+    setDeletedPatternIds((prev) => prev.filter((id) => id !== newPattern.id));
+    setCustomPatterns((prev) =>
+      sortPatternsBySaveTime([newPattern, ...prev.filter((p) => p.id !== newPattern.id)])
+    );
     setIsSyncing(true);
     savePatternToCloud(newPattern)
       .catch((err) => console.error('Cloud save error:', err))
@@ -227,6 +226,19 @@ export default function App() {
   };
 
   const handleDeleteCustomPattern = (id: string) => {
+    setDeletedPatternIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setCustomPatterns((prev) => prev.filter((p) => p.id !== id));
+
+    if (currentPattern.id === id) {
+      const remaining = allPatterns.filter((p) => p.id !== id);
+      if (remaining.length > 0) {
+        const nextPat = normalizePatternData(remaining[0]) || remaining[0];
+        setCurrentPattern(nextPat);
+        setHistory([nextPat.rows]);
+        setHistoryIndex(0);
+      }
+    }
+
     deletePatternFromCloud(id).catch((err) => {
       console.error('Cloud delete error:', err);
     });
@@ -349,10 +361,7 @@ export default function App() {
         currentPattern={currentPattern}
         allPatterns={allPatterns}
         onSelectPattern={(pat) => {
-          const safePat: PatternData = {
-            ...pat,
-            safety: pat.safety || { ...defaultSafetyConfig },
-          };
+          const safePat = normalizePatternData(pat) || patternLibrary[0];
           setCurrentPattern(safePat);
           setHistory([safePat.rows]);
           setHistoryIndex(0);
@@ -467,10 +476,7 @@ export default function App() {
             mode={modalMode || 'export'}
             currentPattern={currentPattern}
             onImportPattern={(pat) => {
-              const safePat = {
-                ...pat,
-                safety: pat.safety || { ...defaultSafetyConfig },
-              };
+              const safePat = normalizePatternData(pat) || patternLibrary[0];
               setCurrentPattern(safePat);
               setHistory([safePat.rows]);
               setHistoryIndex(0);
@@ -498,6 +504,7 @@ export default function App() {
             isOpen={isSaveModalOpen}
             onClose={() => setIsSaveModalOpen(false)}
             currentPattern={currentPattern}
+            allPatterns={allPatterns}
             onSavePattern={handleSavePatternToLibrary}
           />
         )}

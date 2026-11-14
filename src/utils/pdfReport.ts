@@ -218,8 +218,320 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
   const pageCanvases: HTMLCanvasElement[] = [];
 
   // =========================================================================
-  // PAGE 1 (and Page 2 if simulation strip is extra tall):
-  // Metadata Band (İğne Dizilimi + Özet + Rack Tablosu) + High-Res Simulation
+  // MEASURE METADATA BAND (İĞNE DİZİLİMİ VE DESEN ÖZETİ + RACK TANSİYON TABLOSU)
+  // =========================================================================
+  const pageBodyTop = HEADER_Y + HEADER_H + 14;
+  const pageBodyBottom = PAGE_H - FOOTER_H - 16;
+
+  const leftMetaW = Math.floor(AVAIL_W * 0.52);
+  const metaGapX = 14;
+  const rightMetaW = AVAIL_W - leftMetaW - metaGapX;
+
+  const leftHeaderH = 34;
+  const leftLineH = 24;
+  const leftStatCardH = 52;
+  const leftMetaContentH =
+    leftHeaderH + activeGbList.length * leftLineH + 8 + leftStatCardH + 12;
+
+  const rackList: RackTensionRow[] =
+    rawRackRows.length > 0
+      ? rawRackRows
+      : [{ id: 'empty', courseCount: '-', values: {} as Record<GuideBarId, string> }];
+
+  const rackInnerW = rightMetaW - 24;
+  let rackNoteLines: string[] = [];
+  if (rackNote !== '') {
+    const mCanvas = document.createElement('canvas');
+    const mCtx = mCanvas.getContext('2d');
+    if (mCtx) {
+      mCtx.font = '600 11.5px "Plus Jakarta Sans", sans-serif';
+      rackNoteLines = wrapCanvasText(mCtx, rackNote, rackInnerW - 20);
+    } else {
+      rackNoteLines = rackNote.split(/\r?\n/).filter(Boolean);
+    }
+  }
+  const rackNoteBoxH = rackNoteLines.length > 0 ? 24 + rackNoteLines.length * 15 + 8 : 0;
+
+  const rackTitleH = 30;
+  const rackHeaderH = 26;
+  const rackRowH = 22;
+  const rightMetaContentH =
+    rackTitleH +
+    rackHeaderH +
+    rackList.length * rackRowH +
+    (rackNoteBoxH > 0 ? rackNoteBoxH + 8 : 0) +
+    12;
+
+  const metaBandH = Math.max(leftMetaContentH, rightMetaContentH);
+
+  // Helper to draw side-by-side İĞNE DİZİLİMİ VE DESEN ÖZETİ (Left) + RACK TANSİYON TABLOSU (Right)
+  const drawMetaAndRackBand = (
+    targetCtx: CanvasRenderingContext2D,
+    bandY: number,
+    rackRowsSlice: RackTensionRow[],
+    rackStartIndex: number,
+    showNoteInBand: boolean,
+    isContinuation = false
+  ): number => {
+    const sliceNoteH = showNoteInBand && rackNoteBoxH > 0 ? rackNoteBoxH + 8 : 0;
+    const sliceRightH =
+      rackTitleH + rackHeaderH + rackRowsSlice.length * rackRowH + sliceNoteH + 12;
+    const bandH = isContinuation ? sliceRightH : Math.max(leftMetaContentH, sliceRightH);
+
+    // LEFT BOX: İĞNE DİZİLİMİ VE DESEN ÖZETİ (on first band)
+    if (!isContinuation) {
+      targetCtx.fillStyle = '#0B0F17';
+      targetCtx.fillRect(PAD_X, bandY, leftMetaW, bandH);
+      targetCtx.strokeStyle = '#1E293B';
+      targetCtx.lineWidth = 1.2;
+      targetCtx.strokeRect(PAD_X, bandY, leftMetaW, bandH);
+
+      targetCtx.fillStyle = '#38BDF8';
+      targetCtx.font = 'bold 13.5px "Plus Jakarta Sans", sans-serif';
+      targetCtx.textAlign = 'left';
+      targetCtx.fillText('İĞNE DİZİLİMİ VE DESEN ÖZETİ', PAD_X + 12, bandY + 21);
+
+      targetCtx.fillStyle = '#94A3B8';
+      targetCtx.font = 'bold 10.5px "JetBrains Mono", monospace';
+      targetCtx.textAlign = 'right';
+      targetCtx.fillText(
+        `${activeGbList.length} Tarak  |  ${needleCols} İğne`,
+        PAD_X + leftMetaW - 12,
+        bandY + 21
+      );
+
+      let rowY = bandY + 44;
+      activeGbList.forEach((gbId) => {
+        const gb = gbMap[gbId];
+        if (!gb) return;
+
+        targetCtx.fillStyle = gb.color;
+        targetCtx.fillRect(PAD_X + 12, rowY - 11, 12, 12);
+        targetCtx.strokeStyle = '#FFFFFF';
+        targetCtx.lineWidth = 0.8;
+        targetCtx.strokeRect(PAD_X + 12, rowY - 11, 12, 12);
+
+        const filledCnt = Array.from({ length: needleCols }, (_, i) =>
+          gb.threadingArray && typeof gb.threadingArray[i] === 'boolean'
+            ? gb.threadingArray[i]
+            : i % 2 === 0
+        ).filter(Boolean).length;
+        const emptyCnt = needleCols - filledCnt;
+
+        const calc = guideBarCalculations[gbId];
+        const yarnText = calc ? ` | ${calc.requiredYarnCount} Tel (${calc.repeatCount} Tekrar)` : '';
+
+        targetCtx.fillStyle = '#F1F5F9';
+        targetCtx.font = 'bold 11.5px "JetBrains Mono", monospace';
+        targetCtx.textAlign = 'left';
+        targetCtx.fillText(
+          `${gbId}: ${filledCnt} Dolu / ${emptyCnt} Boş (Top. ${needleCols}İ)${yarnText}`,
+          PAD_X + 30,
+          rowY
+        );
+
+        rowY += leftLineH;
+      });
+
+      const statY = bandY + bandH - leftStatCardH - 10;
+      const statGap = 10;
+      const statBoxW = Math.floor((leftMetaW - 24 - statGap * 2) / 3);
+      const statBoxes = [
+        {
+          label: 'KUMAŞ SIKLIĞI (MAY)',
+          value: mayDisplay,
+          borderColor: '#0891B2',
+          valueColor: '#22D3EE',
+        },
+        {
+          label: 'MAKSİMUM TEL',
+          value: `${maxTelCount.toLocaleString('tr-TR')} Tel`,
+          borderColor: '#059669',
+          valueColor: '#34D399',
+        },
+        {
+          label: 'DESEN ZORLUĞU',
+          value: `${diffInfo.shortLabel} (${diffInfo.score}/100)`,
+          borderColor: '#7C3AED',
+          valueColor: '#C4B5FD',
+        },
+      ];
+
+      statBoxes.forEach((sb, idx) => {
+        const sx = PAD_X + 12 + idx * (statBoxW + statGap);
+        targetCtx.fillStyle = '#111827';
+        targetCtx.fillRect(sx, statY, statBoxW, leftStatCardH);
+        targetCtx.strokeStyle = sb.borderColor;
+        targetCtx.lineWidth = 1.1;
+        targetCtx.strokeRect(sx, statY, statBoxW, leftStatCardH);
+
+        targetCtx.fillStyle = '#94A3B8';
+        targetCtx.font = 'bold 9.5px "Plus Jakarta Sans", sans-serif';
+        targetCtx.textAlign = 'left';
+        targetCtx.fillText(sb.label, sx + 9, statY + 17);
+
+        targetCtx.fillStyle = sb.valueColor;
+        targetCtx.font = 'bold 13px "JetBrains Mono", monospace';
+        targetCtx.fillText(sb.value, sx + 9, statY + 39);
+      });
+    }
+
+    // RIGHT BOX: RACK TANSİYON TABLOSU (+ Not)
+    const rackBoxX = isContinuation ? PAD_X : PAD_X + leftMetaW + metaGapX;
+    const rackBoxW = isContinuation ? AVAIL_W : rightMetaW;
+    const rInnerX = rackBoxX + 12;
+    const rInnerW = rackBoxW - 24;
+
+    targetCtx.fillStyle = '#0B0F17';
+    targetCtx.fillRect(rackBoxX, bandY, rackBoxW, bandH);
+    targetCtx.strokeStyle = '#1E293B';
+    targetCtx.lineWidth = 1.2;
+    targetCtx.strokeRect(rackBoxX, bandY, rackBoxW, bandH);
+
+    targetCtx.fillStyle = '#34D399';
+    targetCtx.font = 'bold 13.5px "Plus Jakarta Sans", sans-serif';
+    targetCtx.textAlign = 'left';
+    targetCtx.fillText(
+      isContinuation ? 'RACK TANSİYON TABLOSU (DEVAM)' : 'RACK TANSİYON TABLOSU',
+      rackBoxX + 12,
+      bandY + 21
+    );
+
+    targetCtx.fillStyle = tableExtras.isRackManualOverride ? '#FCD34D' : '#6EE7B7';
+    targetCtx.font = 'bold 10.5px "Plus Jakarta Sans", sans-serif';
+    targetCtx.textAlign = 'right';
+    targetCtx.fillText(
+      tableExtras.isRackManualOverride ? 'Elle Düzenlendi' : 'Otomatik (Atlama)',
+      rackBoxX + rackBoxW - 12,
+      bandY + 21
+    );
+
+    const rackTableY = bandY + rackTitleH;
+    const sayiColW = isContinuation ? 70 : 46;
+    const kursColW = isContinuation ? 130 : 94;
+    const rackGbColW = (rInnerW - sayiColW - kursColW) / activeGbList.length;
+    const rackTotalH = rackHeaderH + rackRowsSlice.length * rackRowH;
+
+    targetCtx.fillStyle = '#080C14';
+    targetCtx.fillRect(rInnerX, rackTableY, rInnerW, rackTotalH);
+    targetCtx.strokeStyle = '#334155';
+    targetCtx.lineWidth = 1;
+    targetCtx.strokeRect(rInnerX, rackTableY, rInnerW, rackTotalH);
+
+    targetCtx.fillStyle = '#111827';
+    targetCtx.fillRect(rInnerX, rackTableY, rInnerW, rackHeaderH);
+    targetCtx.strokeStyle = '#334155';
+    targetCtx.beginPath();
+    targetCtx.moveTo(rInnerX, rackTableY + rackHeaderH);
+    targetCtx.lineTo(rInnerX + rInnerW, rackTableY + rackHeaderH);
+    targetCtx.stroke();
+
+    targetCtx.fillStyle = '#E2E8F0';
+    targetCtx.font = 'bold 11px "JetBrains Mono", monospace';
+    targetCtx.textAlign = 'center';
+    targetCtx.fillText('Sayı', rInnerX + sayiColW / 2, rackTableY + 17);
+
+    targetCtx.fillStyle = '#38BDF8';
+    targetCtx.fillText('Kurs no', rInnerX + sayiColW + kursColW / 2, rackTableY + 17);
+
+    targetCtx.strokeStyle = '#1E293B';
+    targetCtx.beginPath();
+    targetCtx.moveTo(rInnerX + sayiColW, rackTableY);
+    targetCtx.lineTo(rInnerX + sayiColW, rackTableY + rackTotalH);
+    targetCtx.moveTo(rInnerX + sayiColW + kursColW, rackTableY);
+    targetCtx.lineTo(rInnerX + sayiColW + kursColW, rackTableY + rackTotalH);
+    targetCtx.stroke();
+
+    activeGbList.forEach((gbId, gbIdx) => {
+      const cx = rInnerX + sayiColW + kursColW + gbIdx * rackGbColW;
+      const gbColor = gbMap[gbId]?.color || '#34D399';
+      targetCtx.fillStyle = gbColor;
+      targetCtx.font = 'bold 11.5px "JetBrains Mono", monospace';
+      targetCtx.textAlign = 'center';
+      targetCtx.fillText(gbId, cx + rackGbColW / 2, rackTableY + 17);
+
+      targetCtx.fillStyle = gbColor;
+      targetCtx.fillRect(cx + 1, rackTableY + rackHeaderH - 2.5, rackGbColW - 2, 2.5);
+
+      if (gbIdx > 0) {
+        targetCtx.strokeStyle = '#1E293B';
+        targetCtx.beginPath();
+        targetCtx.moveTo(cx, rackTableY);
+        targetCtx.lineTo(cx, rackTableY + rackTotalH);
+        targetCtx.stroke();
+      }
+    });
+
+    rackRowsSlice.forEach((rRow, localIdx) => {
+      const globalIdx = rackStartIndex + localIdx;
+      const ry = rackTableY + rackHeaderH + localIdx * rackRowH;
+      const isEven = globalIdx % 2 === 1;
+      targetCtx.fillStyle = isEven ? '#111827' : '#0B0F17';
+      targetCtx.fillRect(rInnerX + 1, ry, rInnerW - 2, rackRowH);
+
+      targetCtx.fillStyle = '#38BDF8';
+      targetCtx.font = 'bold 11.5px "JetBrains Mono", monospace';
+      targetCtx.textAlign = 'center';
+      targetCtx.fillText(String(globalIdx), rInnerX + sayiColW / 2, ry + 15);
+
+      targetCtx.fillStyle = '#FFFFFF';
+      targetCtx.font = 'bold 11.5px "JetBrains Mono", monospace';
+      targetCtx.fillText(
+        rRow.courseCount.trim() !== '' ? rRow.courseCount.trim() : '-',
+        rInnerX + sayiColW + kursColW / 2,
+        ry + 15
+      );
+
+      activeGbList.forEach((gbId, gbIdx) => {
+        const cx = rInnerX + sayiColW + kursColW + gbIdx * rackGbColW;
+        const val = (rRow.values[gbId] ?? '').trim();
+        const numVal = parseFloat(val);
+        const isSkipTension = !isNaN(numVal) && numVal > 0 && numVal <= 5000;
+
+        if (isSkipTension) {
+          targetCtx.fillStyle = 'rgba(217, 119, 6, 0.28)';
+          targetCtx.fillRect(cx + 1, ry, rackGbColW - 2, rackRowH);
+          targetCtx.fillStyle = '#FCD34D';
+        } else {
+          targetCtx.fillStyle = val !== '' ? '#34D399' : '#64748B';
+        }
+        targetCtx.font = 'bold 11.5px "JetBrains Mono", monospace';
+        targetCtx.fillText(val !== '' ? val : '-', cx + rackGbColW / 2, ry + 15);
+      });
+
+      targetCtx.strokeStyle = '#1E293B';
+      targetCtx.lineWidth = 0.7;
+      targetCtx.beginPath();
+      targetCtx.moveTo(rInnerX, ry + rackRowH);
+      targetCtx.lineTo(rInnerX + rInnerW, ry + rackRowH);
+      targetCtx.stroke();
+    });
+
+    if (showNoteInBand && rackNoteLines.length > 0) {
+      const noteY = rackTableY + rackTotalH + 8;
+      targetCtx.fillStyle = '#0F172A';
+      targetCtx.fillRect(rInnerX, noteY, rInnerW, rackNoteBoxH);
+      targetCtx.strokeStyle = '#B45309';
+      targetCtx.lineWidth = 1;
+      targetCtx.strokeRect(rInnerX, noteY, rInnerW, rackNoteBoxH);
+
+      targetCtx.fillStyle = '#FBBF24';
+      targetCtx.font = 'bold 10.5px "Plus Jakarta Sans", sans-serif';
+      targetCtx.textAlign = 'left';
+      targetCtx.fillText('NOT:', rInnerX + 10, noteY + 15);
+
+      targetCtx.fillStyle = '#F1F5F9';
+      targetCtx.font = '600 11.5px "Plus Jakarta Sans", sans-serif';
+      rackNoteLines.forEach((line, lIdx) => {
+        targetCtx.fillText(line, rInnerX + 10, noteY + 31 + lIdx * 15);
+      });
+    }
+
+    return bandH;
+  };
+
+  // =========================================================================
+  // PAGE 1: SIMULATION / TECHNICAL DIAGRAM (+ TOP METADATA IF NO SHRINK)
   // =========================================================================
   const page1 = createPdfPageCanvas();
   pageCanvases.push(page1.canvas);
@@ -231,278 +543,36 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
     `MAY: ${mayDisplay}  |  MAKS TEL: ${maxTelCount.toLocaleString('tr-TR')}`
   );
 
-  const metaY = HEADER_Y + HEADER_H + 14;
-  const metaGapX = 16;
-  const leftMetaW = Math.floor(AVAIL_W * 0.54);
-  const rightMetaW = AVAIL_W - leftMetaW - metaGapX;
-
-  const leftLineH = 26;
-  const leftThreadingH = activeGbList.length * leftLineH;
-  const statCardH = 56;
-  const leftMetaContentH = 42 + leftThreadingH + 8 + statCardH + 14;
-
-  const rackTitleH = 30;
-  const rackHeaderH = 28;
-  const rackRowH = 25;
-  const visibleRackCount = Math.max(1, rawRackRows.length);
-
-  let rackNoteLines: string[] = [];
-  if (rackNote !== '') {
-    page1.ctx.font = '600 12px "Plus Jakarta Sans", sans-serif';
-    rackNoteLines = wrapCanvasText(page1.ctx, rackNote, rightMetaW - 40);
-  }
-  const rackNoteBoxH = rackNoteLines.length > 0 ? 28 + rackNoteLines.length * 16 + 8 : 0;
-  const rightMetaContentH =
-    rackTitleH +
-    rackHeaderH +
-    visibleRackCount * rackRowH +
-    (rackNoteBoxH > 0 ? rackNoteBoxH + 10 : 0) +
-    14;
-
-  const metaBandH = Math.max(leftMetaContentH, rightMetaContentH);
-
-  // Left Metadata Card: İğne Dizilimi + 3 Özet Kartı
   const ctx1 = page1.ctx;
-  ctx1.fillStyle = '#0B0F17';
-  ctx1.fillRect(PAD_X, metaY, leftMetaW, metaBandH);
-  ctx1.strokeStyle = '#1E293B';
-  ctx1.lineWidth = 1.2;
-  ctx1.strokeRect(PAD_X, metaY, leftMetaW, metaBandH);
-
-  ctx1.fillStyle = '#38BDF8';
-  ctx1.font = 'bold 14px "Plus Jakarta Sans", sans-serif';
-  ctx1.textAlign = 'left';
-  ctx1.fillText('İĞNE DİZİLİMİ VE DESEN ÖZETİ', PAD_X + 14, metaY + 22);
-
-  let leftY = metaY + 46;
-  activeGbList.forEach((gbId) => {
-    const gb = gbMap[gbId];
-    if (!gb) return;
-
-    ctx1.fillStyle = gb.color;
-    ctx1.fillRect(PAD_X + 14, leftY - 12, 13, 13);
-    ctx1.strokeStyle = '#FFFFFF';
-    ctx1.lineWidth = 1;
-    ctx1.strokeRect(PAD_X + 14, leftY - 12, 13, 13);
-
-    const filledCnt = Array.from({ length: needleCols }, (_, i) =>
-      gb.threadingArray && typeof gb.threadingArray[i] === 'boolean'
-        ? gb.threadingArray[i]
-        : i % 2 === 0
-    ).filter(Boolean).length;
-    const emptyCnt = needleCols - filledCnt;
-
-    const calc = guideBarCalculations[gbId];
-    const yarnText = calc ? `  |  ${calc.requiredYarnCount} Tel (${calc.repeatCount} Tekrar)` : '';
-
-    ctx1.fillStyle = '#F1F5F9';
-    ctx1.font = 'bold 13.5px "JetBrains Mono", monospace';
-    ctx1.textAlign = 'left';
-    ctx1.fillText(
-      `${gbId}: ${filledCnt} Dolu / ${emptyCnt} Boş (Top. ${needleCols}İ)${yarnText}`,
-      PAD_X + 35,
-      leftY
-    );
-
-    leftY += leftLineH;
-  });
-
-  // 3 Summary Cards
-  const statY = metaY + metaBandH - statCardH - 12;
-  const statGap = 10;
-  const statBoxW = Math.floor((leftMetaW - 28 - statGap * 2) / 3);
-  const statBoxes = [
-    {
-      label: 'KUMAŞ SIKLIĞI (MAY)',
-      value: mayDisplay,
-      borderColor: '#0891B2',
-      valueColor: '#22D3EE',
-    },
-    {
-      label: 'MAKSİMUM TEL',
-      value: `${maxTelCount.toLocaleString('tr-TR')} Tel`,
-      borderColor: '#059669',
-      valueColor: '#34D399',
-    },
-    {
-      label: 'DESEN ZORLUĞU',
-      value: `${diffInfo.shortLabel} (${diffInfo.score}/100)`,
-      borderColor: '#7C3AED',
-      valueColor: '#C4B5FD',
-    },
-  ];
-
-  statBoxes.forEach((sb, idx) => {
-    const sx = PAD_X + 14 + idx * (statBoxW + statGap);
-    ctx1.fillStyle = '#111827';
-    ctx1.fillRect(sx, statY, statBoxW, statCardH);
-    ctx1.strokeStyle = sb.borderColor;
-    ctx1.lineWidth = 1.2;
-    ctx1.strokeRect(sx, statY, statBoxW, statCardH);
-
-    ctx1.fillStyle = '#94A3B8';
-    ctx1.font = 'bold 10.5px "Plus Jakarta Sans", sans-serif';
-    ctx1.textAlign = 'left';
-    ctx1.fillText(sb.label, sx + 10, statY + 19);
-
-    ctx1.fillStyle = sb.valueColor;
-    ctx1.font = 'bold 14.5px "JetBrains Mono", monospace';
-    ctx1.fillText(sb.value, sx + 10, statY + 43);
-  });
-
-  // Right Metadata Card: RACK TANSİYON TABLOSU
-  const rackX = PAD_X + leftMetaW + metaGapX;
-  ctx1.fillStyle = '#0B0F17';
-  ctx1.fillRect(rackX, metaY, rightMetaW, metaBandH);
-  ctx1.strokeStyle = '#1E293B';
-  ctx1.lineWidth = 1.2;
-  ctx1.strokeRect(rackX, metaY, rightMetaW, metaBandH);
-
-  ctx1.fillStyle = '#34D399';
-  ctx1.font = 'bold 14px "Plus Jakarta Sans", sans-serif';
-  ctx1.textAlign = 'left';
-  ctx1.fillText('RACK TANSİYON TABLOSU', rackX + 14, metaY + 22);
-
-  ctx1.fillStyle = tableExtras.isRackManualOverride ? '#FCD34D' : '#6EE7B7';
-  ctx1.font = 'bold 11.5px "Plus Jakarta Sans", sans-serif';
-  ctx1.textAlign = 'right';
-  ctx1.fillText(
-    tableExtras.isRackManualOverride ? 'Elle Düzenlendi' : 'Otomatik (Atlama)',
-    rackX + rightMetaW - 14,
-    metaY + 22
-  );
-
-  const rackInnerX = rackX + 12;
-  const rackInnerW = rightMetaW - 24;
-  const rackTableY = metaY + rackTitleH;
-  const sayiColW = 54;
-  const kursColW = 94;
-  const rackGbColW = (rackInnerW - sayiColW - kursColW) / activeGbList.length;
-  const rackTotalH = rackHeaderH + visibleRackCount * rackRowH;
-
-  ctx1.fillStyle = '#080C14';
-  ctx1.fillRect(rackInnerX, rackTableY, rackInnerW, rackTotalH);
-  ctx1.strokeStyle = '#334155';
-  ctx1.lineWidth = 1;
-  ctx1.strokeRect(rackInnerX, rackTableY, rackInnerW, rackTotalH);
-
-  ctx1.fillStyle = '#111827';
-  ctx1.fillRect(rackInnerX, rackTableY, rackInnerW, rackHeaderH);
-  ctx1.strokeStyle = '#334155';
-  ctx1.beginPath();
-  ctx1.moveTo(rackInnerX, rackTableY + rackHeaderH);
-  ctx1.lineTo(rackInnerX + rackInnerW, rackTableY + rackHeaderH);
-  ctx1.stroke();
-
-  ctx1.fillStyle = '#E2E8F0';
-  ctx1.font = 'bold 12.5px "JetBrains Mono", monospace';
-  ctx1.textAlign = 'center';
-  ctx1.fillText('Sayı', rackInnerX + sayiColW / 2, rackTableY + 19);
-
-  ctx1.fillStyle = '#38BDF8';
-  ctx1.fillText('Kurs no', rackInnerX + sayiColW + kursColW / 2, rackTableY + 19);
-
-  ctx1.strokeStyle = '#1E293B';
-  ctx1.beginPath();
-  ctx1.moveTo(rackInnerX + sayiColW, rackTableY);
-  ctx1.lineTo(rackInnerX + sayiColW, rackTableY + rackTotalH);
-  ctx1.moveTo(rackInnerX + sayiColW + kursColW, rackTableY);
-  ctx1.lineTo(rackInnerX + sayiColW + kursColW, rackTableY + rackTotalH);
-  ctx1.stroke();
-
-  activeGbList.forEach((gbId, gbIdx) => {
-    const cx = rackInnerX + sayiColW + kursColW + gbIdx * rackGbColW;
-    const gbColor = gbMap[gbId]?.color || '#34D399';
-    ctx1.fillStyle = gbColor;
-    ctx1.font = 'bold 13px "JetBrains Mono", monospace';
-    ctx1.textAlign = 'center';
-    ctx1.fillText(gbId, cx + rackGbColW / 2, rackTableY + 19);
-
-    ctx1.fillStyle = gbColor;
-    ctx1.fillRect(cx + 1, rackTableY + rackHeaderH - 2.5, rackGbColW - 2, 2.5);
-
-    if (gbIdx > 0) {
-      ctx1.strokeStyle = '#1E293B';
-      ctx1.beginPath();
-      ctx1.moveTo(cx, rackTableY);
-      ctx1.lineTo(cx, rackTableY + rackTotalH);
-      ctx1.stroke();
-    }
-  });
-
-  (rawRackRows.length > 0
-    ? rawRackRows
-    : [{ id: 'empty', courseCount: '-', values: {} as Record<GuideBarId, string> }]
-  ).forEach((rRow, rIdx) => {
-    const ry = rackTableY + rackHeaderH + rIdx * rackRowH;
-    const isEven = rIdx % 2 === 1;
-    ctx1.fillStyle = isEven ? '#111827' : '#0B0F17';
-    ctx1.fillRect(rackInnerX + 1, ry, rackInnerW - 2, rackRowH);
-
-    ctx1.fillStyle = '#38BDF8';
-    ctx1.font = 'bold 13px "JetBrains Mono", monospace';
-    ctx1.textAlign = 'center';
-    ctx1.fillText(String(rIdx), rackInnerX + sayiColW / 2, ry + 17);
-
-    ctx1.fillStyle = '#FFFFFF';
-    ctx1.font = 'bold 13px "JetBrains Mono", monospace';
-    ctx1.fillText(
-      rRow.courseCount.trim() !== '' ? rRow.courseCount.trim() : '-',
-      rackInnerX + sayiColW + kursColW / 2,
-      ry + 17
-    );
-
-    activeGbList.forEach((gbId, gbIdx) => {
-      const cx = rackInnerX + sayiColW + kursColW + gbIdx * rackGbColW;
-      const val = (rRow.values[gbId] ?? '').trim();
-      const numVal = parseFloat(val);
-      const isSkipTension = !isNaN(numVal) && numVal > 0 && numVal <= 5000;
-
-      if (isSkipTension) {
-        ctx1.fillStyle = 'rgba(217, 119, 6, 0.28)';
-        ctx1.fillRect(cx + 1, ry, rackGbColW - 2, rackRowH);
-        ctx1.fillStyle = '#FCD34D';
-      } else {
-        ctx1.fillStyle = val !== '' ? '#34D399' : '#64748B';
-      }
-      ctx1.font = 'bold 13px "JetBrains Mono", monospace';
-      ctx1.fillText(val !== '' ? val : '-', cx + rackGbColW / 2, ry + 17);
-    });
-
-    ctx1.strokeStyle = '#1E293B';
-    ctx1.lineWidth = 0.8;
-    ctx1.beginPath();
-    ctx1.moveTo(rackInnerX, ry + rackRowH);
-    ctx1.lineTo(rackInnerX + rackInnerW, ry + rackRowH);
-    ctx1.stroke();
-  });
-
-  if (rackNoteLines.length > 0) {
-    const noteY = rackTableY + rackTotalH + 8;
-    ctx1.fillStyle = '#0F172A';
-    ctx1.fillRect(rackInnerX, noteY, rackInnerW, rackNoteBoxH);
-    ctx1.strokeStyle = '#B45309';
-    ctx1.lineWidth = 1;
-    ctx1.strokeRect(rackInnerX, noteY, rackInnerW, rackNoteBoxH);
-
-    ctx1.fillStyle = '#FBBF24';
-    ctx1.font = 'bold 11.5px "Plus Jakarta Sans", sans-serif';
-    ctx1.textAlign = 'left';
-    ctx1.fillText('NOT:', rackInnerX + 10, noteY + 18);
-
-    ctx1.fillStyle = '#F1F5F9';
-    ctx1.font = '600 12px "Plus Jakarta Sans", sans-serif';
-    rackNoteLines.forEach((line, lIdx) => {
-      ctx1.fillText(line, rackInnerX + 10, noteY + 35 + lIdx * 16);
-    });
-  }
-
-  // Simulation / Technical Diagram Visual Area on Page 1 (Always Single Page, Max Aspect-Preserving Scale + Tmktekstil.com Side Watermark)
   const crop = getTrimmedSourceBounds(sourceCanvas);
 
-  const simSectionTitleY = metaY + metaBandH + 22;
+  const simSectionTitleOffset = 22;
+  const maxSimOnlyH = pageBodyBottom - (pageBodyTop + simSectionTitleOffset);
+  const simOnlyScale = Math.min(
+    AVAIL_W / Math.max(1, crop.sw),
+    maxSimOnlyH / Math.max(1, crop.sh)
+  );
+
+  const metaSimGap = 14;
+  const remainingSimH =
+    pageBodyBottom - (pageBodyTop + metaBandH + metaSimGap + simSectionTitleOffset);
+  const simWithMetaScale =
+    remainingSimH > 120
+      ? Math.min(AVAIL_W / Math.max(1, crop.sw), remainingSimH / Math.max(1, crop.sh))
+      : 0;
+
+  // Put İĞNE DİZİLİMİ + RACK TANSİYON on Page 1 top ONLY if it fits cleanly without shrinking the simulation
+  const putMetaOnPage1 =
+    remainingSimH >= 240 && metaBandH <= 680 && simWithMetaScale >= simOnlyScale * 0.995;
+
+  let simSectionTitleY = pageBodyTop + 10;
+  if (putMetaOnPage1) {
+    const drawnMetaH = drawMetaAndRackBand(ctx1, pageBodyTop, rackList, 0, true, false);
+    simSectionTitleY = pageBodyTop + drawnMetaH + metaSimGap + 12;
+  }
+
   const simFrameTopY = simSectionTitleY + 12;
-  const availPage1SimH = PAGE_H - FOOTER_H - 18 - simFrameTopY;
+  const availPage1SimH = pageBodyBottom - simFrameTopY;
 
   ctx1.fillStyle = '#38BDF8';
   ctx1.font = 'bold 15px "Plus Jakarta Sans", sans-serif';
@@ -513,7 +583,7 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
     simSectionTitleY
   );
 
-  // Outer Showcase Box spanning full Page 1 width & remaining height
+  // Outer Showcase Box spanning full Page 1 width & available height
   ctx1.fillStyle = '#070B14';
   ctx1.fillRect(PAD_X, simFrameTopY, AVAIL_W, availPage1SimH);
   ctx1.strokeStyle = '#1E293B';
@@ -576,20 +646,77 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
   ctx1.strokeRect(simX, simY, drawW, drawH);
 
   // =========================================================================
-  // SUBSEQUENT PAGES: DEDICATED SPACIOUS 4-STEP MACHINE PATTERN TABLE
-  // Automatically paginates across as many A4 pages as needed for crisp reading!
+  // SUBSEQUENT PAGES: (IF NOT ON PAGE 1) İĞNE DİZİLİMİ & RACK TANSİYON ABOVE
+  // 4-STEP MACHINE PATTERN TABLE — NO DEDICATED EMPTY SUMMARY-ONLY PAGE!
   // =========================================================================
   const totalSteps = expandedRows.length;
+  let metaDrawn = putMetaOnPage1;
+  let rackCursor = 0;
+
+  // Helper to ensure İĞNE DİZİLİMİ & RACK TANSİYON is rendered (handles extra-long Rack lists gracefully)
+  const renderPendingMetaOntoCurrentPage = (
+    targetCtx: CanvasRenderingContext2D,
+    startY: number
+  ): { nextY: number; finishedAllMeta: boolean } => {
+    const availH = pageBodyBottom - startY;
+    const isCont = rackCursor > 0;
+    const reserveNoteH = rackNoteBoxH > 0 ? rackNoteBoxH + 8 : 0;
+    const minNeededForHeader = isCont ? rackTitleH + rackHeaderH + 12 : Math.max(leftMetaContentH, rackTitleH + rackHeaderH + 12);
+
+    const maxRowsWithNote = Math.max(
+      1,
+      Math.floor((availH - rackTitleH - rackHeaderH - reserveNoteH - 12) / rackRowH)
+    );
+    const maxRowsWithoutNote = Math.max(
+      1,
+      Math.floor((availH - rackTitleH - rackHeaderH - 12) / rackRowH)
+    );
+
+    const remainingRack = rackList.length - rackCursor;
+    if (remainingRack <= maxRowsWithNote && (isCont || metaBandH <= availH)) {
+      const slice = rackList.slice(rackCursor);
+      const drawnH = drawMetaAndRackBand(targetCtx, startY, slice, rackCursor, true, isCont);
+      rackCursor = rackList.length;
+      metaDrawn = true;
+      return { nextY: startY + drawnH + 18, finishedAllMeta: true };
+    }
+
+    const sliceCount = Math.min(remainingRack, maxRowsWithoutNote);
+    const slice = rackList.slice(rackCursor, rackCursor + sliceCount);
+    const drawnH = drawMetaAndRackBand(
+      targetCtx,
+      startY,
+      slice,
+      rackCursor,
+      remainingRack <= sliceCount && availH >= minNeededForHeader + reserveNoteH,
+      isCont
+    );
+    rackCursor += slice.length;
+    if (rackCursor >= rackList.length) {
+      metaDrawn = true;
+    }
+    return { nextY: startY + drawnH + 18, finishedAllMeta: metaDrawn };
+  };
+
+  if (totalSteps === 0 && !metaDrawn) {
+    while (!metaDrawn) {
+      const mPage = createPdfPageCanvas();
+      pageCanvases.push(mPage.canvas);
+      drawPageHeader(
+        mPage.ctx,
+        pattern,
+        needleCols,
+        displayCourseCount,
+        'İĞNE DİZİLİMİ & RACK TANSİYON'
+      );
+      renderPendingMetaOntoCurrentPage(mPage.ctx, pageBodyTop);
+    }
+  }
+
   if (totalSteps > 0) {
-    const tableTitleY = HEADER_Y + HEADER_H + 32;
-    const tableTopY = tableTitleY + 14;
-    const tableMaxH = PAGE_H - FOOTER_H - 18 - tableTopY;
-
     const tableHeaderH = 36;
-    const stepRowH = 24; // Large, ultra-legible 24px step row (96px per course!)
-    const stepsPerCol = Math.max(1, Math.floor((tableMaxH - tableHeaderH) / stepRowH));
+    const stepRowH = 24;
 
-    // Choose spacious column count based on active guide bars so numbers & ATLA badges never squeeze
     const courseColW = 54;
     const minBarColW = 82;
     const minBlockW = courseColW + activeGbList.length * minBarColW;
@@ -598,32 +725,60 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
       1,
       Math.floor((AVAIL_W + blockGapX) / (minBlockW + blockGapX))
     );
-    const maxPreferredCols =
-      activeGbList.length <= 2 ? 3 : activeGbList.length <= 4 ? 2 : 2;
+    const maxPreferredCols = activeGbList.length <= 2 ? 3 : 2;
     const colsPerFullPage = Math.min(maxPreferredCols, maxColsByWidth);
 
-    const stepsPerPage = stepsPerCol * colsPerFullPage;
-    const totalTablePages = Math.max(1, Math.ceil(totalSteps / stepsPerPage));
+    let stepCursor = 0;
+    let tPageIdx = 0;
 
-    for (let tPageIdx = 0; tPageIdx < totalTablePages; tPageIdx++) {
-      const pageStartStep = tPageIdx * stepsPerPage;
-      const pageEndStep = Math.min(totalSteps, pageStartStep + stepsPerPage);
+    while (stepCursor < totalSteps) {
+      const tPage = createPdfPageCanvas();
+      pageCanvases.push(tPage.canvas);
+      const tCtx = tPage.ctx;
+
+      let contentTopY = pageBodyTop;
+      const hadMetaPendingOnThisPage = !metaDrawn;
+
+      if (!metaDrawn) {
+        const res = renderPendingMetaOntoCurrentPage(tCtx, contentTopY);
+        contentTopY = res.nextY;
+
+        // If Rack overflowed onto another page and left too little height here for table rows, continue on next page
+        if (!res.finishedAllMeta || pageBodyBottom - contentTopY < 32 + tableHeaderH + stepRowH * 4) {
+          drawPageHeader(
+            tCtx,
+            pattern,
+            needleCols,
+            displayCourseCount,
+            'İĞNE DİZİLİMİ & RACK TANSİYON'
+          );
+          tPageIdx++;
+          continue;
+        }
+      }
+
+      const tableTitleY = contentTopY + 14;
+      const tableTopY = tableTitleY + 14;
+      const tableMaxH = pageBodyBottom - tableTopY;
+      const stepsPerCol = Math.max(1, Math.floor((tableMaxH - tableHeaderH) / stepRowH));
+      const stepsPerThisPage = stepsPerCol * colsPerFullPage;
+
+      const pageStartStep = stepCursor;
+      const pageEndStep = Math.min(totalSteps, pageStartStep + stepsPerThisPage);
       const pageStepCount = pageEndStep - pageStartStep;
 
       const firstCourseOnPage = expandedRows[pageStartStep]?.courseIndex ?? 1;
       const lastCourseOnPage = expandedRows[pageEndStep - 1]?.courseIndex ?? displayCourseCount;
-
-      const tPage = createPdfPageCanvas();
-      pageCanvases.push(tPage.canvas);
-      const tCtx = tPage.ctx;
 
       drawPageHeader(
         tCtx,
         pattern,
         needleCols,
         displayCourseCount,
-        totalTablePages > 1
-          ? `DESEN TABLOSU (${tPageIdx + 1}/${totalTablePages})`
+        hadMetaPendingOnThisPage
+          ? 'ÖZET & 4 ADIMLI DESEN TABLOSU'
+          : tPageIdx > 0
+          ? '4 ADIMLI DESEN TABLOSU (Devam)'
           : '4 ADIMLI DESEN TABLOSU'
       );
 
@@ -789,6 +944,9 @@ export async function buildHighResPatternPdf(params: PdfReportParams): Promise<B
           tCtx.stroke();
         });
       }
+
+      stepCursor = pageEndStep;
+      tPageIdx++;
     }
   }
 

@@ -157,24 +157,30 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right: Quick Pattern Selector + Compact Metrics + Save & Icon Actions */}
         <div className="flex items-center justify-between sm:justify-end gap-1.5 min-w-0">
-          {allPatterns.length > 0 && onSelectPattern && (
-            <select
-              id="quick-pattern-select"
-              value={currentPattern.id}
-              onChange={(e) => {
-                const found = allPatterns.find((p) => p.id === e.target.value);
-                if (found) onSelectPattern(found);
-              }}
-              title="Aktif Üretim Deseni"
-              className="bg-[#111827] border border-slate-700 hover:border-slate-600 text-white text-xs font-semibold rounded px-2 py-1 focus:outline-none focus:border-blue-500 flex-1 sm:flex-initial max-w-none sm:max-w-[240px] truncate cursor-pointer"
-            >
-              {allPatterns.map((pat) => (
-                <option key={pat.id} value={pat.id}>
-                  {pat.title} ({pat.rows.length}K)
-                </option>
-              ))}
-            </select>
-          )}
+          {(() => {
+            const safePatterns = Array.isArray(allPatterns)
+              ? allPatterns.filter((p): p is PatternData => Boolean(p && p.id))
+              : [];
+            if (safePatterns.length === 0 || !onSelectPattern) return null;
+            return (
+              <select
+                id="quick-pattern-select"
+                value={currentPattern?.id || ''}
+                onChange={(e) => {
+                  const found = safePatterns.find((p) => p.id === e.target.value);
+                  if (found) onSelectPattern(found);
+                }}
+                title="Aktif Üretim Deseni"
+                className="bg-[#111827] border border-slate-700 hover:border-slate-600 text-white text-xs font-semibold rounded px-2 py-1 focus:outline-none focus:border-blue-500 flex-1 sm:flex-initial max-w-none sm:max-w-[240px] truncate cursor-pointer"
+              >
+                {safePatterns.map((pat) => (
+                  <option key={pat.id} value={pat.id}>
+                    {pat.title || pat.id} ({Array.isArray(pat.rows) ? pat.rows.length : 0}K)
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
 
           {/* Compact Fabric Width (Kumaş Eni cm) Input */}
           {onChangeFabricWidth && (

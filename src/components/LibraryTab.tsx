@@ -21,6 +21,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Tümü');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [shareToast, setShareToast] = useState<{ msg: string; link?: string } | null>(null);
 
   const categories = [
@@ -59,18 +60,18 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
     }
   };
 
-  const handleDeleteWithConfirm = (pat: PatternData) => {
+  const handleConfirmDelete = (pat: PatternData) => {
     if (!onDeletePattern) return;
-    const ok = window.confirm(`"${pat.title}" deseni ortak kütüphaneden silinsin mi?`);
-    if (ok) {
-      onDeletePattern(pat.id);
-    }
+    onDeletePattern(pat.id);
+    setConfirmDeleteId(null);
   };
 
-  const filteredPatterns = allPatterns.filter((pat) => {
-    const matchesSearch =
-      pat.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pat.description.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredPatterns = (Array.isArray(allPatterns) ? allPatterns : []).filter((pat) => {
+    if (!pat || !pat.id) return false;
+    const titleText = (pat.title || '').toLowerCase();
+    const descText = (pat.description || '').toLowerCase();
+    const q = searchTerm.toLowerCase();
+    const matchesSearch = titleText.includes(q) || descText.includes(q);
     const matchesCategory =
       selectedCategory === 'Tümü' ||
       pat.category === selectedCategory;
@@ -151,25 +152,33 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
       {/* Pattern Catalog Grid with Fabric Thumbnails */}
       {filteredPatterns.length === 0 ? (
         <div className="bg-[#111827] border border-slate-800 rounded-lg p-6 text-center space-y-2">
-          <p className="text-xs font-semibold text-slate-300">Desen bulunamadı.</p>
-          <button
-            type="button"
-            onClick={() => {
-              setSearchTerm('');
-              setSelectedCategory('Tümü');
-            }}
-            className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
-          >
-            Tümünü Göster
-          </button>
+          <p className="text-xs font-semibold text-slate-300">
+            {allPatterns.length === 0
+              ? 'Kütüphanede kayıtlı desen bulunmuyor.'
+              : 'Arama kriterine uygun desen bulunamadı.'}
+          </p>
+          {(searchTerm !== '' || selectedCategory !== 'Tümü') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchTerm('');
+                setSelectedCategory('Tümü');
+              }}
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer"
+            >
+              Tümünü Göster
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
           {filteredPatterns.map((pat) => {
             const isActive = pat.id === currentPatternId;
-            const activeGbCount = Object.keys(pat.guideBars).filter(
-              (k) => pat.guideBars[k as GuideBarId]?.active
+            const guideBars = pat.guideBars || {};
+            const activeGbCount = Object.keys(guideBars).filter(
+              (k) => guideBars[k as GuideBarId]?.active
             ).length;
+            const courseCount = Array.isArray(pat.rows) ? pat.rows.length : 0;
 
             return (
               <div
@@ -201,11 +210,11 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                     </h3>
 
                     <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono tabular-nums">
-                      <span>{pat.rows.length}K</span>
+                      <span>{courseCount}K</span>
                       <span aria-hidden="true">·</span>
                       <span>{activeGbCount}GB</span>
                       <span aria-hidden="true">·</span>
-                      <span>{pat.machine.gauge}</span>
+                      <span>{pat.machine?.gauge || 'E22'}</span>
                     </div>
                   </div>
                 </div>
@@ -228,14 +237,35 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                     </button>
 
                     {onDeletePattern && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteWithConfirm(pat)}
-                        className="p-1.5 text-slate-400 hover:text-rose-400 bg-[#0B0F17] border border-slate-800 rounded transition-colors cursor-pointer"
-                        title="Ortak Kütüphaneden Sil"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      confirmDeleteId === pat.id ? (
+                        <div className="flex items-center gap-1 bg-rose-950/90 border border-rose-700 rounded px-1.5 py-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleConfirmDelete(pat)}
+                            className="text-[10px] font-bold text-rose-200 hover:text-white px-1 cursor-pointer"
+                            title="Silmeyi Onayla"
+                          >
+                            Sil
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="text-[10px] font-semibold text-slate-300 hover:text-white px-1 border-l border-rose-800 cursor-pointer"
+                            title="İptal"
+                          >
+                            Vazgeç
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(pat.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-400 bg-[#0B0F17] border border-slate-800 rounded transition-colors cursor-pointer"
+                          title="Ortak Kütüphaneden Sil"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )
                     )}
 
                     <button

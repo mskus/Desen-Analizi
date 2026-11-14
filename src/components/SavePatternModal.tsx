@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PatternData } from '../types';
-import { BookmarkPlus, X, Check, Users } from 'lucide-react';
+import { BookmarkPlus, X, Check, Users, AlertTriangle } from 'lucide-react';
 import { generatePatternThumbnail } from '../utils/thumbnailGenerator';
+import { loadPatternTableExtras, savePatternTableExtras } from '../utils/patternTableCalc';
 
 interface SavePatternModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentPattern: PatternData;
+  allPatterns: PatternData[];
   onSavePattern: (newPattern: PatternData) => void;
 }
 
@@ -14,9 +16,10 @@ export const SavePatternModal: React.FC<SavePatternModalProps> = ({
   isOpen,
   onClose,
   currentPattern,
+  allPatterns,
   onSavePattern,
 }) => {
-  const [title, setTitle] = useState(currentPattern.title + ' (Kopya)');
+  const [title, setTitle] = useState(currentPattern.title);
   const [category, setCategory] = useState<PatternData['category']>(
     currentPattern.category || 'Teknik'
   );
@@ -26,9 +29,26 @@ export const SavePatternModal: React.FC<SavePatternModalProps> = ({
   const [difficulty, setDifficulty] = useState<PatternData['difficulty']>(
     currentPattern.difficulty || 'Orta'
   );
-  const [success, setSuccess] = useState(false);
+  const [successMode, setSuccessMode] = useState<'new' | 'overwrite' | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTitle(currentPattern.title || '');
+      setCategory(currentPattern.category || 'Teknik');
+      setDescription(currentPattern.description || '');
+      setDifficulty(currentPattern.difficulty || 'Orta');
+      setSuccessMode(null);
+    }
+  }, [isOpen, currentPattern]);
 
   if (!isOpen) return null;
+
+  const normalizedInputTitle = title.trim().toLocaleLowerCase('tr-TR');
+  const existingMatch = normalizedInputTitle
+    ? (allPatterns || []).find(
+        (p) => (p.title || '').trim().toLocaleLowerCase('tr-TR') === normalizedInputTitle
+      )
+    : undefined;
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,11 +64,18 @@ export const SavePatternModal: React.FC<SavePatternModalProps> = ({
       .toString()
       .padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
+    const targetId = existingMatch
+      ? existingMatch.id
+      : 'pat-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6);
+
+    const extras = loadPatternTableExtras(currentPattern);
+    savePatternTableExtras(targetId, extras);
+
     const thumbnail = generatePatternThumbnail(currentPattern);
 
-    const newPattern: PatternData = {
+    const savedPattern: PatternData = {
       ...currentPattern,
-      id: 'pat-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6),
+      id: targetId,
       authorId: 'common_library',
       thumbnail,
       title: title.trim(),
@@ -56,12 +83,26 @@ export const SavePatternModal: React.FC<SavePatternModalProps> = ({
       description: description.trim(),
       difficulty,
       createdAt: formattedDate,
+      updatedAt: now.toISOString(),
+      mayDensity: extras.mayDensity,
+      isRackManualOverride: extras.isRackManualOverride,
+      rackTensionRows: extras.rackTensionRows,
+      rackNote: extras.rackNote,
+      tableExtras: {
+        isTableManualOverride: extras.isTableManualOverride,
+        lockedTableRows: extras.lockedTableRows,
+        manualTableOverrides: extras.manualTableOverrides,
+        tableSkipOverrides: extras.tableSkipOverrides,
+        deletedStepKeys: extras.deletedStepKeys,
+        insertedStepsAfter: extras.insertedStepsAfter,
+      },
     };
 
-    onSavePattern(newPattern);
-    setSuccess(true);
+    const isOverwrite = Boolean(existingMatch);
+    onSavePattern(savedPattern);
+    setSuccessMode(isOverwrite ? 'overwrite' : 'new');
     setTimeout(() => {
-      setSuccess(false);
+      setSuccessMode(null);
       onClose();
     }, 600);
   };
@@ -87,10 +128,14 @@ export const SavePatternModal: React.FC<SavePatternModalProps> = ({
           Bu desen bulut veri tabanına kaydedilecek ve tüm kullanıcılar tarafından ortak kütüphanede anında görülebilecektir.
         </p>
 
-        {success ? (
+        {successMode ? (
           <div className="p-3 bg-emerald-950/80 border border-emerald-700 rounded text-center space-y-1">
             <Check className="w-5 h-5 text-emerald-400 mx-auto" />
-            <div className="text-xs font-bold text-white">Ortak Kütüphaneye Eklendi</div>
+            <div className="text-xs font-bold text-white">
+              {successMode === 'overwrite'
+                ? 'Mevcut Desenin Üzerine Yazıldı'
+                : 'Ortak Kütüphaneye Eklendi'}
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-2.5">
@@ -107,6 +152,15 @@ export const SavePatternModal: React.FC<SavePatternModalProps> = ({
               />
             </div>
 
+            {existingMatch && (
+              <div className="flex items-start gap-2 p-2 rounded bg-amber-950/60 border border-amber-700/80 text-amber-200 text-[11px]">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <span>
+                  Aynı isimde desen mevcut — kaydedildiğinde mevcut desenin üzerine yazılacak ve en üste taşınacak.
+                </span>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">
@@ -114,7 +168,7 @@ export const SavePatternModal: React.FC<SavePatternModalProps> = ({
                 </label>
                 <select
                   value={category}
-                  onChange={(e) => setCategory(e.target.value as any)}
+                  onChange={(e) => setCategory(e.target.value as PatternData['category'])}
                   className="w-full bg-[#0B0F17] border border-slate-700 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
                 >
                   <option value="Halı & Zemin">Halı & Zemin</option>
@@ -133,7 +187,7 @@ export const SavePatternModal: React.FC<SavePatternModalProps> = ({
                 </label>
                 <select
                   value={difficulty}
-                  onChange={(e) => setDifficulty(e.target.value as any)}
+                  onChange={(e) => setDifficulty(e.target.value as PatternData['difficulty'])}
                   className="w-full bg-[#0B0F17] border border-slate-700 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
                 >
                   <option value="Kolay">Kolay</option>
@@ -166,10 +220,14 @@ export const SavePatternModal: React.FC<SavePatternModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                className={`px-4 py-1.5 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer ${
+                  existingMatch
+                    ? 'bg-amber-600 hover:bg-amber-500'
+                    : 'bg-blue-600 hover:bg-blue-500'
+                }`}
               >
                 <BookmarkPlus className="w-3.5 h-3.5" />
-                <span>Ortak Kaydet</span>
+                <span>{existingMatch ? 'Üzerine Yaz ve Kaydet' : 'Ortak Kaydet'}</span>
               </button>
             </div>
           </form>

@@ -1474,13 +1474,14 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
     const tableBodyH = stepsPerCol * stepRowH;
     const tableSectionH = 24 + (totalSteps > 0 ? tableHeaderH + tableBodyH : 36);
 
-    const mainSectionTopY = headerBannerH + metaBandH + 6;
+    const mainSectionTopY = headerBannerH + 6;
     const mainSectionH = useSideBySideMain
       ? Math.max(simDrawH, tableSectionH)
       : simDrawH + 10 + tableSectionH;
 
+    const metaY = mainSectionTopY + mainSectionH + 10;
     const bottomWatermarkH = 30;
-    const unscaledHeight = mainSectionTopY + mainSectionH + bottomWatermarkH;
+    const unscaledHeight = metaY + metaBandH + bottomWatermarkH;
 
     // Target crisp ~2048px longest side on WhatsApp so WhatsApp keeps ~100% resolution without blurry downscaling!
     const maxDim = Math.max(unscaledWidth, unscaledHeight);
@@ -1528,9 +1529,7 @@ export const SimulationTab: React.FC<SimulationTabProps> = ({
       25
     );
 
-    // 2. METADATA BAND: LEFT = İĞNE DİZİLİMİ + ÖZET | RIGHT = RACK TANSİYON TABLOSU
-    const metaY = headerBannerH + 4;
-
+    // 2. BOTTOM METADATA BAND: LEFT = İĞNE DİZİLİMİ + ÖZET | RIGHT = RACK TANSİYON TABLOSU
     ctx.fillStyle = '#0B0F17';
     ctx.fillRect(padX, metaY, leftMetaW, metaBandH - 4);
     ctx.strokeStyle = '#1E293B';
